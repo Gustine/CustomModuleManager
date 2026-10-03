@@ -2,11 +2,11 @@
 
 /**
  * webtrees: online genealogy
- * Copyright (C) 2025 webtrees development team
+ * Copyright (C) 2026 webtrees development team
  *                    <http://webtrees.net>
  *
  * CustomModuleManager (webtrees custom module):
- * Copyright (C) 2025 Markus Hemprich
+ * Copyright (C) 2026 Markus Hemprich
  *                    <http://www.familienforschung-hemprich.de>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -20,11 +20,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  *
- * 
+ *
  * CustomModuleManager
  *
  * A weebtrees(https://webtrees.net) 2.2 custom module to manage custom modules
- * 
+ *
  */
 
 declare(strict_types=1);
@@ -37,6 +37,7 @@ use Fisharebest\Webtrees\Http\ViewResponseTrait;
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Module\ModuleCustomInterface;
 use Fisharebest\Webtrees\Module\ModuleThemeInterface;
+use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\ModuleService;
 use Fisharebest\Webtrees\User;
 use Fisharebest\Webtrees\Validator;
@@ -71,25 +72,28 @@ class CustomModuleUpdatePage implements RequestHandlerInterface
         }
 
         $this->layout = 'layouts/administration';
-        
+
         $module_service        = New ModuleService();
-        /** @var CustomModuleManager $custom_module_manager To avoid IDE warnings */
-        $custom_module_manager = $module_service->findByName(module_name: CustomModuleManager::activeModuleName());    
+        $custom_module_manager = Registry::container()->get(CustomModuleManager::class);
 
         return $this->viewResponse(CustomModuleManager::viewsNamespace() . '::module_update', [
-            'title'                      => I18N::translate('Custom Module Updates'),
-            'custom_module_manager'      => $custom_module_manager,
-            'module_service'             => $module_service,
-            'module_names'               => ModuleUpdateServiceConfiguration::getModuleNames(),
-            'custom_modules'             => $module_service->findByInterface(ModuleCustomInterface::class, true),
-            'themes'                     => $module_service->findByInterface(ModuleThemeInterface::class, true),
-            'fetch_latest'               => $fetch_latest,
-            'modules_to_show'            => $custom_module_manager->getPreference(CustomModuleManager::PREF_MODULES_TO_SHOW, CustomModuleManager::PREF_SHOW_ALL),
-            'show_column_description'    => boolval($custom_module_manager->getPreference(CustomModuleManager::PREF_SHOW_COLUMN_DESCR, '1')),
-            'show_column_category'       => boolval($custom_module_manager->getPreference(CustomModuleManager::PREF_SHOW_COLUMN_CATEGORY, '1')),
-            'show_column_update_service' => boolval($custom_module_manager->getPreference(CustomModuleManager::PREF_SHOW_COLUMN_UPD_SERV, '1')),
-            'show_column_downloads'      => boolval($custom_module_manager->getPreference(CustomModuleManager::PREF_SHOW_COLUMN_DOWNLOADS, '1')),
-            'show_column_enabled'        => boolval($custom_module_manager->getPreference(CustomModuleManager::PREF_SHOW_COLUMN_ENABLED, '1')),
+            'title'                                          => I18N::translate('Custom Module Updates'),
+            'custom_module_manager'                          => $custom_module_manager,
+            'module_service'                                 => $module_service,
+            'module_names'                                   => ModuleUpdateServiceConfiguration::getModuleNames(),
+            'custom_modules'                                 => $module_service->findByInterface(ModuleCustomInterface::class, true),
+            'themes'                                         => $module_service->findByInterface(ModuleThemeInterface::class, true),
+            'fetch_latest'                                   => $fetch_latest,
+            CustomModuleManager::PREF_MODULES_TO_SHOW        => $custom_module_manager->getPreference(CustomModuleManager::PREF_MODULES_TO_SHOW, CustomModuleManager::PREF_SHOW_ALL),
+            CustomModuleManager::PREF_SHOW_COLUMN_DESCR      => boolval($custom_module_manager->getPreference(CustomModuleManager::PREF_SHOW_COLUMN_DESCR, '1')),
+            CustomModuleManager::PREF_SHOW_COLUMN_CATEGORY   => boolval($custom_module_manager->getPreference(CustomModuleManager::PREF_SHOW_COLUMN_CATEGORY, '1')),
+            CustomModuleManager::PREF_SHOW_COLUMN_DATE_ADDED => boolval($custom_module_manager->getPreference(CustomModuleManager::PREF_SHOW_COLUMN_DATE_ADDED, '1')),
+            CustomModuleManager::PREF_SHOW_COLUMN_UPD_SERV   => boolval($custom_module_manager->getPreference(CustomModuleManager::PREF_SHOW_COLUMN_UPD_SERV, '1')),
+            CustomModuleManager::PREF_SHOW_COLUMN_DOWNLOADS  => boolval($custom_module_manager->getPreference(CustomModuleManager::PREF_SHOW_COLUMN_DOWNLOADS, '1')),
+            CustomModuleManager::PREF_SHOW_COLUMN_COMPATIB   => $custom_module_manager->getPreference(CustomModuleManager::PREF_COMP_WEBTREES_VERSION, CustomModuleManager::VERSION_WEBTREES_COMP_DEFAULT) !== '',
+            CustomModuleManager::PREF_TABLE_LAYOUT           => $custom_module_manager->getPreference(CustomModuleManager::PREF_TABLE_LAYOUT, CustomModuleManager::TABLE_LAYOUT_STICKY_HEAD),
+            CustomModuleManager::PREF_VESTA_CONFIRMED        => boolval($custom_module_manager->getPreference(CustomModuleManager::PREF_VESTA_CONFIRMED, '0')),
+            CustomModuleManager::PREF_COMP_WEBTREES_VERSION  => $custom_module_manager->getPreference(CustomModuleManager::PREF_COMP_WEBTREES_VERSION, CustomModuleManager::VERSION_WEBTREES_COMP_DEFAULT),
         ]);
     }
 }

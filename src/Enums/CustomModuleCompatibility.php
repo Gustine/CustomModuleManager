@@ -5,10 +5,6 @@
  * Copyright (C) 2026 webtrees development team
  *                    <http://webtrees.net>
  *
- * Fancy Research Links (webtrees custom module):
- * Copyright (C) 2026 Carmen Just
- *                    <https://justcarmen.nl>
- *
  * CustomModuleManager (webtrees custom module):
  * Copyright (C) 2026 Markus Hemprich
  *                    <http://www.familienforschung-hemprich.de>
@@ -33,8 +29,29 @@
 
 declare(strict_types=1);
 
-namespace Jefferson49\Webtrees\Module\CustomModuleManager;
+namespace Jefferson49\Webtrees\Module\CustomModuleManager\Enums;
 
+use Fisharebest\Webtrees\I18N;
 
-if (!require_once __DIR__ . '/autoload.php') return null;
-return new CustomModuleManager();
+/**
+ * The status of a custom module
+ */
+enum CustomModuleCompatibility: int
+{
+    case NOT_AVAILABLE         = 0;
+    case NOT_COMPATIBLE        = 1;
+    case POSSIBLY_COMPATIBLE   = 2;
+    case PRESUMABLY_COMPATIBLE = 3;
+    case COMPATIBLE            = 4;
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::NOT_AVAILABLE         => I18N::translate('Not available'),
+            self::NOT_COMPATIBLE        => I18N::translate('Not compatible'),
+            self::POSSIBLY_COMPATIBLE   => I18N::translate('Possibly compatible'),
+            self::PRESUMABLY_COMPATIBLE => I18N::translate('Presumably compatible'),
+            self::COMPATIBLE            => I18N::translate('Compatible'),
+        };
+    }
+}

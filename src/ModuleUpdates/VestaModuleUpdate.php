@@ -2,11 +2,11 @@
 
 /**
  * webtrees: online genealogy
- * Copyright (C) 2025 webtrees development team
+ * Copyright (C) 2026 webtrees development team
  *                    <http://webtrees.net>
  *
  * CustomModuleManager (webtrees custom module):
- * Copyright (C) 2025 Markus Hemprich
+ * Copyright (C) 2026 Markus Hemprich
  *                    <http://www.familienforschung-hemprich.de>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -20,11 +20,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  *
- * 
+ *
  * CustomModuleManager
  *
  * A weebtrees(https://webtrees.net) 2.2 custom module to manage custom modules
- * 
+ *
  */
 
 declare(strict_types=1);
@@ -48,7 +48,7 @@ class VestaModuleUpdate extends AbstractModuleUpdate implements CustomModuleUpda
     /**
      * @param string $module_name  The custom module name
      * @param array  $params       The configuration parameters of the update service
-     * 
+     *
      * @return void
      */
     public function __construct(string $module_name, array  $params) {
@@ -62,7 +62,14 @@ class VestaModuleUpdate extends AbstractModuleUpdate implements CustomModuleUpda
             $this->github_repo = '';
         }
 
-        $this->category = self::identifyCategoryFromConfig($module_name, $params);        
+        if (array_key_exists('conflicts', $params)) {
+            $this->conflicts = $params['conflicts'];
+        }
+        else {
+            $this->conflicts = [];
+        }
+
+        $this->category = self::identifyCategoryFromConfig($module_name, $params);
     }
 
     /**
@@ -77,7 +84,7 @@ class VestaModuleUpdate extends AbstractModuleUpdate implements CustomModuleUpda
 
     /**
      * Where can we download the module
-     * 
+     *
      * @param  string $version  The version of the module; latest version if empty
      * @return string
      */
@@ -88,7 +95,7 @@ class VestaModuleUpdate extends AbstractModuleUpdate implements CustomModuleUpda
 
     /**
      * Where can we find a documentation for the module
-     * 
+     *
      * @return string
      */
     public function documentationUrl(): string
@@ -102,17 +109,27 @@ class VestaModuleUpdate extends AbstractModuleUpdate implements CustomModuleUpda
 
     /**
      * Get the GitHub repository
-     * 
+     *
      * @return string
      */
-    public function getGithubRepo(): string
+    public function getRepository(): string
     {
         return $this->github_repo;
     }
 
     /**
+     * Get the hosting platform of the module, e.g. GitHub or Codeberg
+     *
+     * @return string
+     */
+    public function getHostingPlatform(): string
+    {
+        return 'GitHub';
+    }
+
+    /**
      * The Vesta homepage URL
-     * 
+     *
      * @return string
      */
     public function homePageUrl(): string
@@ -133,12 +150,12 @@ class VestaModuleUpdate extends AbstractModuleUpdate implements CustomModuleUpda
     /**
      * Get a list of all module names, which are needed to perform updates with this update service
      * Background: Update services like Vesta might need several modules in parallel
-     * 
+     *
      * @return array<string> module_name => standard_module_name
      */
     public function getModuleNamesToUpdate(): array {
 
-        $getVesta = true; 
+        $getVesta = true;
 
         return ModuleUpdateServiceConfiguration::getModuleNames($getVesta);
     }
@@ -146,8 +163,8 @@ class VestaModuleUpdate extends AbstractModuleUpdate implements CustomModuleUpda
     /**
      * Fetch the latest version of this module
      *
-     * @param bool $fetch_latest  Whether to fetch the latest version, e.g. from a Github repository 
-     * 
+     * @param bool $fetch_latest  Whether to fetch the latest version, e.g. from a Github repository
+     *
      * @return string
      */
     public function customModuleLatestVersion(bool $fetch_latest = false): string
@@ -219,5 +236,15 @@ class VestaModuleUpdate extends AbstractModuleUpdate implements CustomModuleUpda
                 return version_compare($x->version(), $y->version());
             })
             ->last();
+    }
+
+    /**
+     * Get the package name (for custom module list)
+     *
+     * @return bool
+     */
+    public function getPackageName(): string {
+
+        return strtolower($this->github_repo);
     }
 }

@@ -2,11 +2,11 @@
 
 /**
  * webtrees: online genealogy
- * Copyright (C) 2025 webtrees development team
+ * Copyright (C) 2026 webtrees development team
  *                    <http://webtrees.net>
  *
  * CustomModuleManager (webtrees custom module):
- * Copyright (C) 2025 Markus Hemprich
+ * Copyright (C) 2026 Markus Hemprich
  *                    <http://www.familienforschung-hemprich.de>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -20,11 +20,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  *
- * 
+ *
  * CustomModuleManager
  *
  * A weebtrees(https://webtrees.net) 2.2 custom module to manage custom modules
- * 
+ *
  */
 
 declare(strict_types=1);
@@ -33,10 +33,13 @@ namespace Jefferson49\Webtrees\Module\CustomModuleManager\ModuleUpdates;
 
 use Fisharebest\Webtrees\Module\ModuleCustomInterface;
 use Illuminate\Support\Collection;
+use Jefferson49\Webtrees\Exceptions\HostingPlatformCommunicationError;
+use Jefferson49\Webtrees\Module\CustomModuleManager\CustomModuleManager;
+use Jefferson49\Webtrees\Module\CustomModuleManager\Enums\CustomModuleCompatibility;
 
 
 /**
- * Interface for custom module updates 
+ * Interface for custom module updates
  */
 interface CustomModuleUpdateInterface
 {
@@ -46,24 +49,24 @@ interface CustomModuleUpdateInterface
      * @return string
      */
     public function name(): string;
-  
+
     /**
      * How should the module be identified in the control panel, etc.?
      *
      * @param string $language_tag
-     * 
+     *
      * @return string
      */
-    public function title(string $language_tag): string;
+    public function title(string $language_tag = CustomModuleManager::DEFAULT_LANGUAGE): string;
 
     /**
      * A description of the module
      *
      * @param string $language_tag
-     * 
+     *
      * @return string
      */
-    public function description(string $language_tag): string;
+    public function description(string $language_tag = CustomModuleManager::DEFAULT_LANGUAGE): string;
 
     /**
      * A unique internal name for the module (during runtime, based on the installation folder).
@@ -83,20 +86,20 @@ interface CustomModuleUpdateInterface
      *
      * @return string
      */
-    public function customModuleVersion(): string;    
+    public function customModuleVersion(): string;
 
     /**
      * Fetch the latest version of this module
      *
-     * @param bool $fetch_latest  Whether to fetch the latest version, e.g. from a Github repository 
-     * 
+     * @param bool $fetch_latest  Whether to fetch the latest version, e.g. from a Github repository
+     *
      * @return string
      */
     public function customModuleLatestVersion(bool $fetch_latest = false): string;
 
     /**
      * Where can we download the module
-     * 
+     *
      * @param  string $version  The version of the module; latest version if empty
      * @return string
      */
@@ -104,7 +107,7 @@ interface CustomModuleUpdateInterface
 
     /**
      * Where can we find a documentation for the module
-     * 
+     *
      * @return string
      */
     public function documentationUrl(): string;
@@ -115,7 +118,7 @@ interface CustomModuleUpdateInterface
      * @return string
      */
     public function getUnzipFolder(): string;
-    
+
     /**
      * A collection of folder names within the module, which shall be cleaned after an upgrade
      *
@@ -126,45 +129,52 @@ interface CustomModuleUpdateInterface
     /**
      * Get a list of all module names, which are needed to perform updates with this update service
      * Background: Update services like Vesta might need several modules in parallel
-     * 
+     *
      * @return array<string> module_name => standard_module_name
      */
     public function getModuleNamesToUpdate(): array;
 
     /**
      * Test a module after installation
-     * 
+     *
      * @return string Error message or empty string if no error
      */
     public function testModuleInstallation(): string;
 
     /**
      * Test a module update
-     * 
+     *
      * @return string Error message or empty string if no error
      */
     public function testModuleUpdate(): string;
 
     /**
      * Whether the module is a Theme
-     * 
+     *
      * @return bool
      */
     public function moduleIsTheme(): bool;
 
     /**
      * Get the module category
-     * 
+     *
      * @return string
      */
     public function getCategory(): string;
+
+    /**
+     * Get the date when the module was added to the module list of Custom Module Manager
+     *
+     * @return string
+     */
+    public function getDateAdded(): string;
 
     /**
      * Whether the module provides releases in the repository
      *
      * @return bool
      */
-    public function providesReleasesInRepository(): bool;    
+    public function providesReleasesInRepository(): bool;
 
     /**
      * Get the release notes for the latest version of this module
@@ -178,7 +188,7 @@ interface CustomModuleUpdateInterface
      *
      * @return string
      */
-    public function getLatestReleaseURL(): string;    
+    public function getLatestReleaseURL(): string;
 
     /**
      * Whether the module shall be installed clean, i.e. all earlier files are deleted before installation
@@ -186,4 +196,92 @@ interface CustomModuleUpdateInterface
      * @return bool
      */
     public function installClean(): bool;
+
+    /**
+     * Whether the module can only be updated manually (and shall not be updated with CustomModuleManager)
+     *
+     * @return bool
+     */
+    public function updateManually(): bool;
+
+    /**
+     * Get the package name (for custom module list)
+     *
+     * @return bool
+     */
+    public function getPackageName(): string;
+
+    /**
+     * Get the earliest version of the module, which is incompatible with the given webtrees version; i.e. has conflicts
+     *
+     * @param string $webtrees_version The version of webtrees, for which the module shall be compatible
+     *
+     * @return string  The earliest incompatible version of the module with conflicts; empty if not found
+     */
+    public function getEarliestIncompatibleVersion(string $webtrees_version = Webtrees::VERSION): string;
+
+    /**
+     * Get the latest version of the module, which is compatible with the given webtrees version; i.e. has no conflicts
+     *
+     * @param string $webtrees_version The version of webtrees, for which the module shall be compatible
+     *
+     * @return string  The latest compatible version of the module with no conflicts; empty if not found
+     */
+    public function getLatestCompatibleVersion(string $webtrees_version = Webtrees::VERSION): string;
+
+    /**
+     * Get the latest version of the module in the custom module list
+     *
+     * @param string $webtrees_version The version of webtrees, for which the module shall be compatible
+     *
+     * @return string  The latest version in the custom module list
+     */
+    public function getLatestVersionInCustomModuleList(string $webtrees_version = Webtrees::VERSION): string;
+
+    /**
+     * Get the compatiblilty information for a module, which contains a version and its compatibility level
+     *
+     * @param bool   $fetch_latest     Whether to fetch the latest version, e.g. from a Github repository
+     * @param string $webtrees_version The version of webtrees, for which the module shall be compatible
+     *
+     * @return array  An array with a version and its compatibility level
+     */
+    public function getCompatibleVersionInfo(bool $fetch_latest = false, string $webtrees_version = Webtrees::VERSION): array;
+
+    /**
+     * Get the compatiblilty of a module version for a webtrees version
+     *
+     * @param string $webtrees_version    The version of webtrees, for which the module shall be compatible
+     * @param string $module_version      A version of the custom module; defaults to the current version
+     *
+     * @return CustomModuleCompatibility  The compatibility level
+     */
+    public function getCompatibility(string $module_version, string $webtrees_version = Webtrees::VERSION): CustomModuleCompatibility;
+
+    /**
+     * Get the repository of the module
+     *
+     * @return string
+     */
+    public function getRepository(): string;
+
+    /**
+     * Get the hosting platform of the module, e.g. GitHub or Codeberg
+     *
+     * @return string
+     */
+    public function getHostingPlatform(): string;
+
+    /**
+     * Get the text of a file from the module repository
+     *
+     * @param string $repo       The module repository, e.g. GitHub 'Jefferson49/webtrees-common'
+     * @param string $branch     The tag or branch in the module repository
+     * @param string $path       The path in the module repository including the file name
+     *
+     * @throws HostingPlatformCommunicationError  In case of a communcation error with the hosting platform
+     *
+     * @return string
+     */
+    public function getTextFileContent(string $repo, string $branch, string $path): string;
 }

@@ -2,11 +2,11 @@
 
 /**
  * webtrees: online genealogy
- * Copyright (C) 2025 webtrees development team
+ * Copyright (C) 2026 webtrees development team
  *                    <http://webtrees.net>
  *
  * CustomModuleManager (webtrees custom module):
- * Copyright (C) 2025 Markus Hemprich
+ * Copyright (C) 2026 Markus Hemprich
  *                    <http://www.familienforschung-hemprich.de>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -20,11 +20,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  *
- * 
+ *
  * CustomModuleManager
  *
  * A weebtrees(https://webtrees.net) 2.2 custom module to manage custom modules
- * 
+ *
  */
 
 declare(strict_types=1);
@@ -35,6 +35,7 @@ use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\Http\RequestHandlers\HomePage;
 use Fisharebest\Webtrees\Http\ViewResponseTrait;
 use Fisharebest\Webtrees\I18N;
+use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\UpgradeService;
 use Fisharebest\Webtrees\Session;
 use Fisharebest\Webtrees\User;
@@ -84,7 +85,7 @@ class ModuleUpgradeWizardPage implements RequestHandlerInterface
         $user            = Validator::attributes($request)->user();
         $module_name     = Validator::queryParams($request)->string('module_name', '');
         $current_version = Validator::queryParams($request)->string('current_version', '');
-        $latest_version  = Validator::queryParams($request)->string('latest_version', '');
+        $version         = Validator::queryParams($request)->string('version', '');
         $action          = Validator::queryParams($request)->string('action', '');
 
         // If no administrator, redirect to home page
@@ -93,7 +94,8 @@ class ModuleUpgradeWizardPage implements RequestHandlerInterface
         }
 
         // Reset aborted flag before start of wizard
-        Session::forget(CustomModuleManager::activeModuleName() . CustomModuleManager::SESSION_WIZARD_ABORTED);
+        $custom_module_manager = Registry::container()->get(CustomModuleManager::class);
+        Session::forget($custom_module_manager->name() . CustomModuleManager::SESSION_WIZARD_ABORTED);
 
         // Retrieve download URL
         if ($action !== CustomModuleManager::ACTION_DELETE) {
@@ -105,7 +107,7 @@ class ModuleUpgradeWizardPage implements RequestHandlerInterface
                     throw new CustomModuleManagerException(I18N::translate('Could not identify a suitable module upgrade service for custom module'));
                 }
 
-                $download_url = $module_upgrade_service->downloadUrl($latest_version);
+                $download_url = $module_upgrade_service->downloadUrl($version);
             }
             catch (CustomModuleManagerException $exception) {
                 return $this->viewResponse(CustomModuleManager::viewsNamespace() . '::modals/steps-modal', [
@@ -120,7 +122,7 @@ class ModuleUpgradeWizardPage implements RequestHandlerInterface
         }
 
         return $this->viewResponse(CustomModuleManager::viewsNamespace() . '::modals/steps-modal', [
-            'steps' => $this->wizardSteps($module_name, $download_url, $action, $current_version, $latest_version),
+            'steps' => $this->wizardSteps($module_name, $download_url, $action, $current_version, $version),
             'title' => MoreI18N::xlate('Upgrade wizard'),
             'modal' => true,
         ]);
@@ -131,11 +133,11 @@ class ModuleUpgradeWizardPage implements RequestHandlerInterface
      * @param string $module_name
      * @param string $action         The action to be performed, i.e. update or install
      * @param string $current_version
-     * @param string $latest_version
-     * 
+     * @param string $version
+     *
      * @return array<string>
      */
-    private function wizardSteps(string $module_name, string $download_url = '', string $action = CustomModuleManager::ACTION_UPDATE, string $current_version = '', string $latest_version = ''): array
+    private function wizardSteps(string $module_name, string $download_url = '', string $action = CustomModuleManager::ACTION_UPDATE, string $current_version = '', string $version = ''): array
     {
         // Default action
         if (!in_array($action, [CustomModuleManager::ACTION_UPDATE, CustomModuleManager::ACTION_INSTALL, CustomModuleManager::ACTION_DELETE])) {
@@ -147,7 +149,7 @@ class ModuleUpgradeWizardPage implements RequestHandlerInterface
             'download_url'    => $download_url,
             'action'          => $action,
             'current_version' => $current_version,
-            'latest_version'  => $latest_version,
+            'version'         => $version,
             'modal'           => true,
         ];
 

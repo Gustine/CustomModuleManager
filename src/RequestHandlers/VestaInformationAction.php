@@ -29,42 +29,27 @@
 
 declare(strict_types=1);
 
-namespace Jefferson49\Webtrees\Module\CustomModuleManager\ModuleUpdates;
+namespace Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers;
 
-use Jefferson49\Webtrees\Helpers\GithubService;
+use Fisharebest\Webtrees\Registry;
 use Jefferson49\Webtrees\Module\CustomModuleManager\CustomModuleManager;
+use Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers\CustomModuleUpdatePage;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\RequestHandlerInterface;
 
+use function redirect;
+use function route;
 
-/**
- * Update API for a custom module, which is hosted in a Github repository
- */
-class GithubModuleUpdate extends PlatformModuleUpdate implements CustomModuleUpdateInterface
+class VestaInformationAction implements RequestHandlerInterface
 {
-    const string NAME = 'GitHub';
-    const string URL  = 'https://github.com/';
+    public function handle(ServerRequestInterface $request): ResponseInterface
+    {
+        $custom_module_manager = Registry::container()->get(CustomModuleManager::class);
 
-    /**
-     * @param string $module_name  The custom module name
-     * @param array  $params       The configuration parameters of the update service
-     *
-     * @return void
-     */
-    public function __construct(string $module_name, array $params) {
+        //Store the confirmation of the user
+        $custom_module_manager->setPreference(CustomModuleManager::PREF_VESTA_CONFIRMED, '1');
 
-        $this->platform_name    = self::NAME;
-        $this->platform_url     = self::URL;
-        $this->platform_service = GithubService::class;
-
-        parent::__construct($module_name, $params);
-    }
-
-    /**
-     * Get the API token
-     *
-     * @return string
-     */
-    public function getApiToken(): string {
-
-        return $this->custom_module_manager->getPreference(CustomModuleManager::PREF_GITHUB_API_TOKEN, '');
+        return redirect(route(CustomModuleUpdatePage::class));
     }
 }

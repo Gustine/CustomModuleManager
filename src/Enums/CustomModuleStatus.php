@@ -5,10 +5,6 @@
  * Copyright (C) 2026 webtrees development team
  *                    <http://webtrees.net>
  *
- * Fancy Research Links (webtrees custom module):
- * Copyright (C) 2026 Carmen Just
- *                    <https://justcarmen.nl>
- *
  * CustomModuleManager (webtrees custom module):
  * Copyright (C) 2026 Markus Hemprich
  *                    <http://www.familienforschung-hemprich.de>
@@ -33,8 +29,25 @@
 
 declare(strict_types=1);
 
-namespace Jefferson49\Webtrees\Module\CustomModuleManager;
+namespace Jefferson49\Webtrees\Module\CustomModuleManager\Enums;
 
+use Fisharebest\Webtrees\I18N;
 
-if (!require_once __DIR__ . '/autoload.php') return null;
-return new CustomModuleManager();
+/**
+ * The status of a custom module
+ */
+enum CustomModuleStatus: int
+{
+    case NOT_INSTALLED = -1;
+    case DISABLED      =  0;
+    case ENABLED       =  1;
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::NOT_INSTALLED => I18N::translate('Not installed'),
+            self::DISABLED      => I18N::translate('Disabled'),
+            self::ENABLED       => I18N::translate('Enabled'),
+        };
+    }
+}

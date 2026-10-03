@@ -2,11 +2,11 @@
 
 /**
  * webtrees: online genealogy
- * Copyright (C) 2025 webtrees development team
+ * Copyright (C) 2026 webtrees development team
  *                    <http://webtrees.net>
  *
  * CustomModuleManager (webtrees custom module):
- * Copyright (C) 2025 Markus Hemprich
+ * Copyright (C) 2026 Markus Hemprich
  *                    <http://www.familienforschung-hemprich.de>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -20,11 +20,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  *
- * 
+ *
  * CustomModuleManager
  *
  * A weebtrees(https://webtrees.net) 2.2 custom module to manage custom modules
- * 
+ *
  */
 
 declare(strict_types=1);
@@ -33,8 +33,7 @@ namespace Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers;
 
 use Fisharebest\Webtrees\Http\ViewResponseTrait;
 use Fisharebest\Webtrees\I18N;
-use Fisharebest\Webtrees\Services\ModuleService;
-use Fisharebest\Webtrees\Validator;
+use Fisharebest\Webtrees\Registry;
 use Jefferson49\Webtrees\Module\CustomModuleManager\CustomModuleManager;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -55,21 +54,19 @@ class ColumnConfigurationModal implements RequestHandlerInterface
      */
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
-        $show_column_description    = Validator::queryParams($request)->string('show_column_description', '');
-        $show_column_category       = Validator::queryParams($request)->string('show_column_category', '');
-        $show_column_update_service = Validator::queryParams($request)->string('show_column_update_service', '');
-        $show_column_downloads      = Validator::queryParams($request)->string('show_column_downloads', '');
-        $show_column_enabled        = Validator::queryParams($request)->string('show_column_enabled', '');
-
         $this->layout = 'layouts/ajax';
-        
+
+        $custom_module_manager = Registry::container()->get(CustomModuleManager::class);
+
         return $this->viewResponse(CustomModuleManager::viewsNamespace() . '::modals/column_configuration', [
-            'title'                      => I18N::translate('Configure columns'),
-            'show_column_description'    => $show_column_description,
-            'show_column_category'       => $show_column_category,
-            'show_column_update_service' => $show_column_update_service,
-            'show_column_downloads'      => $show_column_downloads,
-            'show_column_enabled'        => $show_column_enabled,
+            'title'                                          => I18N::translate('Configure columns and table layout'),
+            CustomModuleManager::PREF_SHOW_COLUMN_DESCR      => boolval($custom_module_manager->getPreference(CustomModuleManager::PREF_SHOW_COLUMN_DESCR, '1')),
+            CustomModuleManager::PREF_SHOW_COLUMN_CATEGORY   => boolval($custom_module_manager->getPreference(CustomModuleManager::PREF_SHOW_COLUMN_CATEGORY, '1')),
+            CustomModuleManager::PREF_SHOW_COLUMN_DATE_ADDED => boolval($custom_module_manager->getPreference(CustomModuleManager::PREF_SHOW_COLUMN_DATE_ADDED, '1')),
+            CustomModuleManager::PREF_SHOW_COLUMN_UPD_SERV   => boolval($custom_module_manager->getPreference(CustomModuleManager::PREF_SHOW_COLUMN_UPD_SERV, '1')),
+            CustomModuleManager::PREF_SHOW_COLUMN_DOWNLOADS  => boolval($custom_module_manager->getPreference(CustomModuleManager::PREF_SHOW_COLUMN_DOWNLOADS, '1')),
+            CustomModuleManager::PREF_TABLE_LAYOUT           => $custom_module_manager->getPreference(CustomModuleManager::PREF_TABLE_LAYOUT, CustomModuleManager::TABLE_LAYOUT_STICKY_HEAD),
+            CustomModuleManager::PREF_COMP_WEBTREES_VERSION  => $custom_module_manager->getPreference(CustomModuleManager::PREF_COMP_WEBTREES_VERSION, CustomModuleManager::VERSION_WEBTREES_COMP_DEFAULT),
         ]);
     }
 }

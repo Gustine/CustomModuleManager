@@ -2,11 +2,11 @@
 
 /**
  * webtrees: online genealogy
- * Copyright (C) 2025 webtrees development team
+ * Copyright (C) 2026 webtrees development team
  *                    <http://webtrees.net>
  *
  * CustomModuleManager (webtrees custom module):
- * Copyright (C) 2025 Markus Hemprich
+ * Copyright (C) 2026 Markus Hemprich
  *                    <http://www.familienforschung-hemprich.de>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -20,11 +20,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  *
- * 
+ *
  * CustomModuleManager
  *
  * A weebtrees(https://webtrees.net) 2.2 custom module to manage custom modules
- * 
+ *
  */
 
 declare(strict_types=1);
@@ -38,7 +38,7 @@ use Jefferson49\Webtrees\Module\CustomModuleManager\Exceptions\CustomModuleManag
 /**
  * Update API for a custom module, which is based on a simple download URL
  */
-class UrlModuleUpdate extends AbstractModuleUpdate implements CustomModuleUpdateInterface 
+class UrlModuleUpdate extends AbstractModuleUpdate implements CustomModuleUpdateInterface
 {
     const NAME = 'URL';
 
@@ -51,12 +51,19 @@ class UrlModuleUpdate extends AbstractModuleUpdate implements CustomModuleUpdate
     /**
      * @param string $module_name  The custom module name
      * @param array  $params       The configuration parameters of the update service
-     * 
+     *
      * @return void
      */
     public function __construct(string $module_name, array  $params) {
 
         $this->module_name    = $module_name;
+
+        if (array_key_exists('conflicts', $params)) {
+            $this->conflicts = $params['conflicts'];
+        }
+        else {
+            $this->conflicts = [];
+        }
 
         if (array_key_exists('download_url', $params)) {
             $this->download_url = $params['download_url'];
@@ -84,10 +91,10 @@ class UrlModuleUpdate extends AbstractModuleUpdate implements CustomModuleUpdate
 
         return self::NAME;
     }
-    
+
     /**
      * Where can we download the module
-     * 
+     *
      * @param  string $version  The version of the module; latest version if empty
      * @return string
      */
@@ -98,11 +105,32 @@ class UrlModuleUpdate extends AbstractModuleUpdate implements CustomModuleUpdate
 
     /**
      * Where can we find a documentation for the module
-     * 
+     *
      * @return string
      */
-    public function documentationUrl(): string 
+    public function documentationUrl(): string
     {
         return $this->documentation_url;
+    }
+
+    /**
+     * Get the package name (for custom module list)
+     *
+     * @return bool
+     */
+    public function getPackageName(): string {
+
+        if (strpos($this->download_url,'codeberg') !== false) {
+
+            $package_name = str_replace('https://codeberg.org/', '', $this->download_url);
+
+            $slash_position1 = strpos($package_name, '/', 0);
+            $slash_position2 = strpos($package_name, '/', $slash_position1 + 1);
+
+            return substr($package_name, 0, $slash_position2);
+        }
+        else {
+            return $this->name();
+        }
     }
 }

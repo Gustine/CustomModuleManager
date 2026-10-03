@@ -2,11 +2,11 @@
 
 /**
  * webtrees: online genealogy
- * Copyright (C) 2025 webtrees development team
+ * Copyright (C) 2026 webtrees development team
  *                    <http://webtrees.net>
  *
  * CustomModuleManager (webtrees custom module):
- * Copyright (C) 2025 Markus Hemprich
+ * Copyright (C) 2026 Markus Hemprich
  *                    <http://www.familienforschung-hemprich.de>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -20,11 +20,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  *
- * 
+ *
  * CustomModuleManager
  *
  * A weebtrees(https://webtrees.net) 2.2 custom module to manage custom modules
- * 
+ *
  */
 
 declare(strict_types=1);
@@ -37,6 +37,7 @@ use Fisharebest\Webtrees\Module\ModuleCustomInterface;
 use Fisharebest\Webtrees\Services\ModuleService;
 use Fisharebest\Webtrees\Validator;
 use Jefferson49\Webtrees\Internationalization\MoreI18N;
+use Jefferson49\Webtrees\Module\CustomModuleManager\CustomModuleManager;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
@@ -58,10 +59,11 @@ final class CustomModuleActivateAction implements RequestHandlerInterface
         foreach ($modules as $module) {
 
             if ($module instanceof  ModuleCustomInterface) {
-                $new_status = Validator::parsedBody($request)->boolean('status-' . $module->name(), false);
-                $old_status = $module->isEnabled();
+                $enabled_status_included = Validator::parsedBody($request)->string(CustomModuleManager::ENABLED_STATUS_INCLUDED . $module->name(), '');
+                $new_status              = Validator::parsedBody($request)->boolean('status-' . $module->name(), false);
+                $old_status              = $module->isEnabled();
 
-                if ($new_status !== $old_status) {
+                if ($enabled_status_included && $new_status !== $old_status) {
 
                     //ToDo: Check new database schema in webtrees 2.2.6?
 

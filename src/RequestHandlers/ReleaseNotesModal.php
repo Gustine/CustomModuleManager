@@ -2,11 +2,11 @@
 
 /**
  * webtrees: online genealogy
- * Copyright (C) 2025 webtrees development team
+ * Copyright (C) 2026 webtrees development team
  *                    <http://webtrees.net>
  *
  * CustomModuleManager (webtrees custom module):
- * Copyright (C) 2025 Markus Hemprich
+ * Copyright (C) 2026 Markus Hemprich
  *                    <http://www.familienforschung-hemprich.de>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -20,11 +20,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  *
- * 
+ *
  * CustomModuleManager
  *
  * A weebtrees(https://webtrees.net) 2.2 custom module to manage custom modules
- * 
+ *
  */
 
 declare(strict_types=1);
@@ -34,7 +34,6 @@ namespace Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers;
 use Fisharebest\Webtrees\Http\ViewResponseTrait;
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Registry;
-use Fisharebest\Webtrees\Services\ModuleService;
 use Fisharebest\Webtrees\Validator;
 use Jefferson49\Webtrees\Module\CustomModuleManager\CustomModuleManager;
 use Jefferson49\Webtrees\Module\CustomModuleManager\Factories\CustomModuleUpdateFactory;
@@ -60,16 +59,12 @@ class ReleaseNotesModal implements RequestHandlerInterface
     {
         $module_name    = Validator::queryParams($request)->string('module_name', '');
         $module_title   = Validator::queryParams($request)->string('module_title', '');
-        $latest_version = Validator::queryParams($request)->string('latest_version', '');
-
-        /** @var CustomModuleManager $custom_module_manager  To avoid IDE warnings */
-        $module_service = New ModuleService();
-        $custom_module_manager = $module_service->findByName(CustomModuleManager::activeModuleName());   
+        $version        = Validator::queryParams($request)->string('version', '');
+        $ignore_version = Validator::queryParams($request)->string('ignore_version', '');
 
         /** @var GithubModuleUpdate $module_update_service */
         $module_update_service = CustomModuleUpdateFactory::make($module_name);
 
-        $short_module_name = substr($module_name, 0, 25) . '_';
         $release_note = $module_update_service->getLatestReleaseNotes();
 
         if ($release_note === '') {
@@ -80,13 +75,13 @@ class ReleaseNotesModal implements RequestHandlerInterface
         }
 
         $this->layout = 'layouts/ajax';
-        
+
         return $this->viewResponse(CustomModuleManager::viewsNamespace() . '::modals/release_notes', [
                 'title'          => I18N::translate('Release notes'),
                 'module_name'    => $module_name,
                 'module_title'   => $module_title,
-                'latest_version' => $latest_version,
-                'ignore_version' => $custom_module_manager->getPreference($short_module_name . CustomModuleManager::PREF_IGNORE_VERSION, ''),
+                'version'        => $version,
+                'ignore_version' => $ignore_version,
                 'release_notes'  => $html,
                 'release_url'    => $module_update_service->getLatestReleaseURL(),
         ]);

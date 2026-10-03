@@ -2,15 +2,15 @@
 
 /**
  * webtrees: online genealogy
- * Copyright (C) 2025 webtrees development team
+ * Copyright (C) 2026 webtrees development team
  *                    <http://webtrees.net>
  *
  * Fancy Research Links (webtrees custom module):
- * Copyright (C) 2024 Carmen Just
+ * Copyright (C) 2026 Carmen Just
  *                    <https://justcarmen.nl>
  *
  * CustomModuleManager (webtrees custom module):
- * Copyright (C) 2025 Markus Hemprich
+ * Copyright (C) 2026 Markus Hemprich
  *                    <http://www.familienforschung-hemprich.de>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -24,19 +24,20 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  *
- * 
+ *
  * CustomModuleManager
  *
  * A weebtrees(https://webtrees.net) 2.2 custom module to manage custom modules
- * 
+ *
  */
 
 declare(strict_types=1);
 
 namespace Jefferson49\Webtrees\Module\CustomModuleManager;
 
-use Fig\Http\Message\RequestMethodInterface;
-use Fisharebest\Localization\Translation;
+use Composer\Semver\Comparator;
+use Composer\Semver\Semver;
+use Composer\Semver\VersionParser;
 use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\FlashMessages;
 use Fisharebest\Webtrees\I18N;
@@ -44,7 +45,6 @@ use Fisharebest\Webtrees\Module\AbstractModule;
 use Fisharebest\Webtrees\Module\ModuleConfigInterface;
 use Fisharebest\Webtrees\Module\ModuleConfigTrait;
 use Fisharebest\Webtrees\Module\ModuleCustomInterface;
-use Fisharebest\Webtrees\Module\ModuleCustomTrait;
 use Fisharebest\Webtrees\Module\ModuleGlobalInterface;
 use Fisharebest\Webtrees\Module\ModuleGlobalTrait;
 use Fisharebest\Webtrees\Module\ModuleLanguageInterface;
@@ -58,12 +58,16 @@ use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\View;
 use Fisharebest\Webtrees\Webtrees;
 use Jefferson49\Webtrees\Exceptions\GithubCommunicationError;
+use Jefferson49\Webtrees\Exceptions\HostingPlatformCommunicationError;
+use Jefferson49\Webtrees\Helpers\Functions;
 use Jefferson49\Webtrees\Helpers\GithubService;
 use Jefferson49\Webtrees\Log\CustomModuleLogInterface;
 use Jefferson49\Webtrees\Module\CustomModuleManager\Configuration\DefaultTitlesAndDescriptions;
 use Jefferson49\Webtrees\Module\CustomModuleManager\Configuration\ModuleUpdateServiceConfiguration;
 use Jefferson49\Webtrees\Module\CustomModuleManager\Factories\CustomModuleUpdateFactory;
+use Jefferson49\Webtrees\Module\CustomModuleManager\ModuleUpdates\CodebergModuleUpdate;
 use Jefferson49\Webtrees\Module\CustomModuleManager\ModuleUpdates\GithubModuleUpdate;
+use Jefferson49\Webtrees\Module\CustomModuleManager\ModuleUpdates\PlatformModuleUpdate;
 use Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers\ColumnConfigurationAction;
 use Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers\ColumnConfigurationModal;
 use Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers\CustomModuleActivateAction;
@@ -73,11 +77,17 @@ use Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers\ModuleInform
 use Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers\ModuleUpgradeWizardPage;
 use Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers\ModuleUpgradeWizardStep;
 use Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers\ReleaseNotesModal;
+use Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers\VestaInformationAction;
+use Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers\VestaInformationModal;
+use Jefferson49\Webtrees\Module\ModuleCustomTrait;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 
+use DateTimeImmutable;
+use Exception;
+use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
 
@@ -96,7 +106,7 @@ class CustomModuleManager extends AbstractModule implements
     use ModuleListTrait;
 
 	//Custom module version
-	public const CUSTOM_VERSION = 'v2.0.4';
+	public const CUSTOM_VERSION = 'v2.0.6';
 
 	//GitHub repository
 	public const GITHUB_REPO = 'Jefferson49/CustomModuleManager';
@@ -105,35 +115,42 @@ class CustomModuleManager extends AbstractModule implements
 	public const CUSTOM_AUTHOR = 'Markus Hemprich';
 
     //Whether a GiHub communication error occured
-    private static bool $github_communication_error = false;
+    private static bool $platform_communication_error = false;
 
     //Whether the current version is lower than the latest version of the module
     private static bool $is_lower_than_latest_version;
 
-    //Prefences, Settings
-	public const PREF_MODULE_VERSION        = 'module_version';
-    public const PREF_DEBUGGING_ACTIVATED   = 'debugging_activated';
-	public const PREF_GITHUB_API_TOKEN      = 'github_api_token';
-	public const PREF_LAST_UPDATED_MODULE   = 'last_updated_module';
-    public const PREF_ROLLBACK_ONGOING      = 'rollback_ongoing';
-    public const PREF_MODULES_TO_SHOW       = 'modules_to_show';
-    public const PREF_SHOW_ALL              = 'show_all_modules';
-    public const PREF_SHOW_INSTALLED        = 'show_installed_modules';
-    public const PREF_SHOW_NOT_INSTALLED    = 'show_not_installed_modules';
-    public const PREF_SHOW_MENU_LIST_ITEM   = 'show_menu_list_item';
-    public const PREF_LATEST_VERSION        = 'latest';
-    public const PREF_IGNORE_VERSION        = 'ignore';
-    public const PREF_SHOW_COLUMN_DESCR     = 'show_column_description';
-    public const PREF_SHOW_COLUMN_CATEGORY  = 'show_column_category';
-    public const PREF_SHOW_COLUMN_UPD_SERV  = 'show_column_update_service';
-    public const PREF_SHOW_COLUMN_DOWNLOADS = 'show_column_downloads';
-    public const PREF_SHOW_COLUMN_ENABLED   = 'show_column_enabled';
+    //The module configuration (including all available module data)
+    private static array $configuration = [];
 
-    //Configuraton
-    public const CONFIG_GITHUB_BRANCH     = 'config';
-    public const CONFIG_LOCAL_PATH        = 'module_update_service_configuration.json';
-    public const CONFIG_GITHUB_PATH       = 'module_update_service_configuration.json';
-    public const CONFIG_FILE_NAME         = '';
+
+    //Prefences, Settings
+	public const PREF_MODULE_VERSION          = 'module_version';
+    public const PREF_DEBUGGING_ACTIVATED     = 'debugging_activated';
+	public const PREF_CODEBERG_API_TOKEN      = 'codeberg_api_token';
+	public const PREF_GITHUB_API_TOKEN        = 'github_api_token';
+	public const PREF_LAST_UPDATED_MODULE     = 'last_updated_module';
+    public const PREF_ROLLBACK_ONGOING        = 'rollback_ongoing';
+    public const PREF_MODULES_TO_SHOW         = 'modules_to_show';
+    public const PREF_SHOW_ALL                = 'show_all_modules';
+    public const PREF_SHOW_INSTALLED          = 'show_installed_modules';
+    public const PREF_SHOW_NOT_INSTALLED      = 'show_not_installed_modules';
+    public const PREF_SHOW_MENU_LIST_ITEM     = 'show_menu_list_item';
+    public const PREF_IGNORE_VERSION          = 'ignore';
+    public const PREF_SHOW_COLUMN_DESCR       = 'show_column_description';
+    public const PREF_SHOW_COLUMN_CATEGORY    = 'show_column_category';
+    public const PREF_SHOW_COLUMN_DATE_ADDED  = 'show_column_date_added';
+    public const PREF_SHOW_COLUMN_COMPATIB    = 'show_column_compatibility';
+    public const PREF_SHOW_COLUMN_UPD_SERV    = 'show_column_update_service';
+    public const PREF_SHOW_COLUMN_DOWNLOADS   = 'show_column_downloads';
+    public const PREF_TABLE_LAYOUT            = 'table_layout';
+    public const PREF_VESTA_CONFIRMED         = 'vesta_confirmed';
+    public const PREF_COMP_WEBTREES_VERSION   = 'webtrees_version';
+
+    //Table layout
+    public const TABLE_LAYOUT_TABLE       = 'table_layout_table';
+    public const TABLE_LAYOUT_STICKY_HEAD = 'table_layout_sticky_head';
+    public const TABLE_LAYOUT_RESPONSIVE  = 'table_layout_responsive';
 
     //Actions
     public const ACTION_DELETE            = 'action_delete';
@@ -150,11 +167,12 @@ class CustomModuleManager extends AbstractModule implements
     public const ROUTE_IGNORE_UPDATE       = '/ignore-update';
     public const ROUTE_COLUMN_CONF_MODAL   = '/column-config-modal';
     public const ROUTE_COLUMN_CONF_ACTION  = '/column-config-action';
+    public const ROUTE_VESTA_INFORMATION   = '/vesta-information';
+    public const ROUTE_VESTA_INFO_ACTION   = '/vesta-information-action';
 
     //Language
     public const DEFAULT_LANGUAGE         = 'en-US';
     public const DEFAULT_LANGUAGE_PREFIX  = "[English:]";
-
 
     //Session
     public const SESSION_WIZARD_ABORTED   = 'wizard_aborted';
@@ -165,98 +183,93 @@ class CustomModuleManager extends AbstractModule implements
     //Cache
     public const CACHE_REALEASE_INFO      = 'cmm-release-info-';
 
+    //Config GitHub
+    public const CONFIG_GITHUB_BRANCH      = 'config';
+    public const CONFIG_GITHUB_PATH        = 'module_update_service_configuration.json';
+
+    //Versions
+    public const VERSION_NOT_AVAILABLE         = 'not available';
+    public const VERSION_LATEST                = 'latest';
+    public const VERSION_WEBTREES_COMP_DEFAULT = '2.3';
+    public const VERSION_WEBTREES_MINIMUM      = '2.2.6';
+
+    //Path
+    public const PATH_LOCAL_CONFIG                    = '/Configuration/module_update_service_configuration.json';
+    public const PATH_CUSTOM_MODULE_LIST              = '/Configuration/custom_module_list.json';
+    public const PATH_DEFAULT_TITLES_AND_DESCRIPTIONS = '/Configuration/DefaultTitlesAndDescriptions.php';
+
     //Supported webtrees version
     public const MINIMUM_WEBTREES_VERSION = '2.2.3';
 
     //Switch to generate new default titles and description (in class DefaultTitlesAndDescriptions.php)
     public const GENERATE_DEFAULT_TITLES_AND_DESCRIPTIONS = false;
 
-    //Switch to generate a json file with the custom module update configuration (in module_update_service_configuration.json)
+    //Switch to generate a JSON file with the custom module update configuration (in module_update_service_configuration.json)
     public const GENERATE_CUSTOM_MODULE_UPDATE_CONFIG = false;
-    
+
+    //Switch to generate a JSON file with the custom module list
+    public const GENERATE_CUSTOM_MODULE_LIST = false;
+
+    //Whether data of existing versions shall be replaced
+    public const REPLACE_EXISTING_VERSIONS = false;
+
+    //Switch to add conflicts with the current webtrees version
+    public const ADD_CONFLICTS_FOR_MODULES_NOT_EXISTING = false;
+
     //Use the local json file for the custom module update configuration (in module_update_service_configuration.json)
     public const USE_LOCAL_CONFIG = false;
 
+    //Use the local json file for the custom module update configuration (in module_update_service_configuration.json)
+    public const USE_LOCAL_CONFIG_FROM_CUSTOM_MODULE_LIST = true;
+
+    //Whether the enabled status is included during submitting the update form
+    public const ENABLED_STATUS_INCLUDED = 'enabled_status_included';
+
+    //Whether logging of communication errors with hosting platforms (i.e. GitHub, Codeberg) is activated
+    public const LOGGING_COMM_ERRORS_ENABLEDD = 'logging_of_communication_errors_enabled';
+
+
     /**
-     * CustomModuleManager constructor.
+     * Constructor
      */
     public function __construct()
     {
-        //Caution: Do not use the shared library jefferson47/webtrees-common within __construct(), 
+        //Caution: Do not use the shared library jefferson47/webtrees-common within __construct(),
         //         because it might result in wrong autoload behavior
     }
 
     /**
-     * Initialization.
+     * {@inheritDoc}
      *
      * @return void
+     *
+     * @see \Fisharebest\Webtrees\Module\AbstractModule::boot()
      */
     public function boot(): void
-    {              
+    {
+        //Register the custom module in the webtrees container
+        Registry::container()->set(CustomModuleManager::class, $this);
+
         //Check update of module version
         $this->checkModuleVersionUpdate();
-
-        //If a specific switch is turned on, we generate default titles and descriptions
-        if (self::GENERATE_DEFAULT_TITLES_AND_DESCRIPTIONS) {
-            self::generateDefaultTitlesAndDescriptions();
-        }        
-
-        //If a specific switch is turned on, we generate a json file for custom module update configuration
-        if (self::GENERATE_CUSTOM_MODULE_UPDATE_CONFIG) {
-            self::generateModuleUpdateServiceConfig();
-        }        
 
 		// Register a namespace for the views.
 		View::registerNamespace(self::viewsNamespace(), $this->resourcesFolder() . 'views/');
 
-        $router = Registry::routeFactory()->routeMap();                 
-
-        //Register a route for the upgrade wizard page
-        $router
-        ->get(ModuleUpgradeWizardPage::class, self::ROUTE_WIZARD_PAGE)
-        ->allows(RequestMethodInterface::METHOD_POST);
-
-        //Register a route for a upgrade wizard step
-        $router
-        ->get(ModuleUpgradeWizardStep::class, self::ROUTE_WIZARD_STEP)
-        ->allows(RequestMethodInterface::METHOD_POST);
-
-        //Register a route for the custom module update page
-        $router
-        ->get(CustomModuleUpdatePage::class, self::ROUTE_MODULE_UPDATE_PAGE)
-        ->allows(RequestMethodInterface::METHOD_POST);
-
-        //Register a route for the module information modal
-        $router
-        ->get(ModuleInformationModal::class, self::ROUTE_MODULE_INFO_MODAL)
-        ->allows(RequestMethodInterface::METHOD_POST);
-
-        //Register a route for the release notes modal
-        $router
-        ->get(ReleaseNotesModal::class, self::ROUTE_RELEASE_NOTES_MODAL)
-        ->allows(RequestMethodInterface::METHOD_POST);
-
-        //Register a route for the module activate action
-        $router
-        ->get(CustomModuleActivateAction::class, self::ROUTE_ACTIVATE_ACTION)
-        ->allows(RequestMethodInterface::METHOD_POST);
-
-        //Register a route for the update ignore action
-        $router
-        ->get(IgnoreUpdateAction::class, self::ROUTE_IGNORE_UPDATE)
-        ->allows(RequestMethodInterface::METHOD_POST);
-
-        //Register a route for the column configuration modal
-        $router
-        ->get(ColumnConfigurationModal::class, self::ROUTE_COLUMN_CONF_MODAL)
-        ->allows(RequestMethodInterface::METHOD_POST);
-
-        //Register a route for the column configuration action
-        $router
-        ->get(ColumnConfigurationAction::class, self::ROUTE_COLUMN_CONF_ACTION)
-        ->allows(RequestMethodInterface::METHOD_POST);
+        //Register the routes for the custom module
+        Functions::registerRoute(self::ROUTE_WIZARD_PAGE, ModuleUpgradeWizardPage::class);
+        Functions::registerRoute(self::ROUTE_WIZARD_STEP, ModuleUpgradeWizardStep::class);
+        Functions::registerRoute(self::ROUTE_MODULE_UPDATE_PAGE, CustomModuleUpdatePage::class);
+        Functions::registerRoute(self::ROUTE_MODULE_INFO_MODAL, ModuleInformationModal::class);
+        Functions::registerRoute(self::ROUTE_RELEASE_NOTES_MODAL, ReleaseNotesModal::class);
+        Functions::registerRoute(self::ROUTE_ACTIVATE_ACTION, CustomModuleActivateAction::class);
+        Functions::registerRoute(self::ROUTE_IGNORE_UPDATE, IgnoreUpdateAction::class);
+        Functions::registerRoute(self::ROUTE_COLUMN_CONF_MODAL, ColumnConfigurationModal::class);
+        Functions::registerRoute(self::ROUTE_COLUMN_CONF_ACTION, ColumnConfigurationAction::class);
+        Functions::registerRoute(self::ROUTE_VESTA_INFORMATION, VestaInformationModal::class);
+        Functions::registerRoute(self::ROUTE_VESTA_INFO_ACTION, VestaInformationAction::class);
     }
-	
+
     /**
      * {@inheritDoc}
      *
@@ -287,119 +300,6 @@ class CustomModuleManager extends AbstractModule implements
      *
      * @return string
      *
-     * @see \Fisharebest\Webtrees\Module\AbstractModule::resourcesFolder()
-     */
-    public function resourcesFolder(): string
-    {
-        return dirname(__DIR__, 1) . '/resources/';
-    }
-
-    /**
-     * Get the active module name, e.g. the name of the currently running module
-     *
-     * @return string
-     */
-    public static function activeModuleName(): string
-    {
-        return '_' . basename(dirname(__DIR__, 1)) . '_';
-    }
-    
-    /**
-     * {@inheritDoc}
-     *
-     * @return string
-     *
-     * @see \Fisharebest\Webtrees\Module\ModuleCustomInterface::customModuleAuthorName()
-     */
-    public function customModuleAuthorName(): string
-    {
-        return self::CUSTOM_AUTHOR;
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * @return string
-     *
-     * @see \Fisharebest\Webtrees\Module\ModuleCustomInterface::customModuleVersion()
-     */
-    public function customModuleVersion(): string
-    {
-        return self::CUSTOM_VERSION;
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * @return string
-     *
-     * @see \Fisharebest\Webtrees\Module\ModuleCustomInterface::customModuleLatestVersion()
-     */
-    public function customModuleLatestVersion(): string
-    {
-        // If no GitHub repo is available
-        if (self::GITHUB_REPO === '') {
-            return $this->customModuleVersion();
-        }
-
-        return Registry::cache()->file()->remember(
-            $this->name() . '-latest-version',
-            function (): string {
-
-                try {
-                    //Get latest release from GitHub
-                    return GithubService::getLatestReleaseTag(self::GITHUB_REPO, $this->getPreference(CustomModuleManager::PREF_GITHUB_API_TOKEN, ''));
-                }
-                catch (GithubCommunicationError $ex) {
-                    // Can't connect to GitHub?
-                    if (!self::rememberGithubCommunciationError()) {
-                        FlashMessages::addMessage(I18N::translate('Communication error with %s', GithubModuleUpdate::NAME), 'danger');
-                    }
-                }
-
-                return $this->customModuleVersion();
-            },
-            86400
-        );
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * @return string
-     *
-     * @see \Fisharebest\Webtrees\Module\ModuleCustomInterface::customModuleSupportUrl()
-     */
-    public function customModuleSupportUrl(): string
-    {
-        return 'https://github.com/' . self::GITHUB_REPO;
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * @param string $language
-     *
-     * @return array
-     *
-     * @see \Fisharebest\Webtrees\Module\ModuleCustomInterface::customTranslations()
-     */
-    public function customTranslations(string $language): array
-    {
-        $lang_dir   = $this->resourcesFolder() . 'lang/';
-        $file       = $lang_dir . $language . '.mo';
-        if (file_exists($file)) {
-            return (new Translation($file))->asArray();
-        } else {
-            return [];
-        }
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * @return string
-     *
      * @see \Fisharebest\Webtrees\Module\ModuleGlobalInterface::headContent()
      */
     public function headContent(): string
@@ -407,7 +307,7 @@ class CustomModuleManager extends AbstractModule implements
         //Include CSS file in head of webtrees HTML to make sure it is always found
         $css = '<link href="' . $this->assetUrl('css/custom-module-manager.css') . '" type="text/css" rel="stylesheet" />';
 
-        return $css; 
+        return $css;
     }
 
     /**
@@ -424,7 +324,7 @@ class CustomModuleManager extends AbstractModule implements
     public function listUrl(Tree $tree, array $parameters = []): string
     {
         return route(CustomModuleUpdatePage::class);
-    }    
+    }
 
     /**
      * {@inheritDoc}
@@ -434,13 +334,13 @@ class CustomModuleManager extends AbstractModule implements
      * @return string
      *
      * @see \Fisharebest\Webtrees\Module\ModuleListInterface::listIsEmpty()
-     */    
+     */
     public function listIsEmpty(Tree $tree): bool
     {
-        return (   !Auth::isAdmin() 
+        return (   !Auth::isAdmin()
                 OR !boolval($this->getPreference(self::PREF_SHOW_MENU_LIST_ITEM, '1'))
         );
-    }    
+    }
 
     /**
      * {@inheritDoc}
@@ -457,31 +357,21 @@ class CustomModuleManager extends AbstractModule implements
 
     /**
      * Get the prefix for custom module specific logs
-     * 
+     *
      * @return string
      */
     public static function getLogPrefix() : string {
         return 'Custom Module Manager';
-    }  
-    
+    }
+
     /**
      * Whether debugging is activated
-     * 
+     *
      * @return bool
      */
     public function debuggingActivated(): bool {
         return boolval($this->getPreference(self::PREF_DEBUGGING_ACTIVATED, '0'));
     }
-    
-    /**
-     * Get the namespace for the views
-     *
-     * @return string
-     */
-    public static function viewsNamespace(): string
-    {
-        return self::activeModuleName();
-    }    
 
     /**
      * View module settings in control panel
@@ -492,6 +382,29 @@ class CustomModuleManager extends AbstractModule implements
      */
     public function getAdminAction(ServerRequestInterface $request): ResponseInterface
     {
+        //Before generating configuration files, we need to initialize the configuration
+        $config = self::getConfig();
+
+        //If the corresponding switch is turned on, we generate default titles and descriptions
+        if (self::GENERATE_DEFAULT_TITLES_AND_DESCRIPTIONS) {
+            self::generateDefaultTitlesAndDescriptions();
+        }
+
+        //If the corresponding switch is turned on, we generate a JSON file for custom module update configuration
+        if (self::GENERATE_CUSTOM_MODULE_UPDATE_CONFIG) {
+            self::generateModuleUpdateServiceConfig();
+        }
+
+        //If the corresponding switch is turned on, we generate a JSON file for the custom module list
+        if (self::GENERATE_CUSTOM_MODULE_LIST) {
+            $this->generateCustomModuleList(self::REPLACE_EXISTING_VERSIONS);
+        }
+
+        //If the corresponding switch is turned on, we add conflicts to the custom module list
+        if (self::ADD_CONFLICTS_FOR_MODULES_NOT_EXISTING) {
+            $this->addConflictsForModulesNotExisting();
+        }
+
         $this->layout = 'layouts/administration';
 
         return $this->viewResponse(
@@ -500,9 +413,12 @@ class CustomModuleManager extends AbstractModule implements
                 'runs_with_webtrees_version'   => CustomModuleManager::runsWithInstalledWebtreesVersion(),
                 'php_extension_zip_missing'    => !extension_loaded('zip'),
                 'title'                        => $this->title(),
+                self::PREF_CODEBERG_API_TOKEN  => $this->getPreference(self::PREF_CODEBERG_API_TOKEN, ''),
                 self::PREF_GITHUB_API_TOKEN    => $this->getPreference(self::PREF_GITHUB_API_TOKEN, ''),
                 self::PREF_MODULES_TO_SHOW     => $this->getPreference(self::PREF_MODULES_TO_SHOW, self::PREF_SHOW_ALL),
 				self::PREF_SHOW_MENU_LIST_ITEM => boolval($this->getPreference(self::PREF_SHOW_MENU_LIST_ITEM, '1')),
+				self::PREF_TABLE_LAYOUT        => $this->getPreference(self::PREF_TABLE_LAYOUT, self::TABLE_LAYOUT_STICKY_HEAD),
+				self::PREF_DEBUGGING_ACTIVATED => boolval($this->getPreference(self::PREF_DEBUGGING_ACTIVATED, '0')),
             ]
         );
     }
@@ -517,20 +433,26 @@ class CustomModuleManager extends AbstractModule implements
     public function postAdminAction(ServerRequestInterface $request): ResponseInterface
     {
         $save                = Validator::parsedBody($request)->string('save', '');
+        $codeberg_api_token  = Validator::parsedBody($request)->string(self::PREF_CODEBERG_API_TOKEN, '');
         $github_api_token    = Validator::parsedBody($request)->string(self::PREF_GITHUB_API_TOKEN, '');
         $modules_to_show     = Validator::parsedBody($request)->string(self::PREF_MODULES_TO_SHOW, self::PREF_SHOW_ALL);
         $show_menu_list_item = Validator::parsedBody($request)->boolean(self::PREF_SHOW_MENU_LIST_ITEM, false);
+        $table_layout        = Validator::parsedBody($request)->string(self::PREF_TABLE_LAYOUT, SELF::TABLE_LAYOUT_STICKY_HEAD);
+        $debugging_activated = Validator::parsedBody($request)->boolean(self::PREF_DEBUGGING_ACTIVATED, false);
 
         //Save the received settings to the user preferences
         if ($save === '1') {
+			$this->setPreference(self::PREF_CODEBERG_API_TOKEN, $codeberg_api_token);
 			$this->setPreference(self::PREF_GITHUB_API_TOKEN, $github_api_token);
 			$this->setPreference(self::PREF_MODULES_TO_SHOW, $modules_to_show);
 			$this->setPreference(self::PREF_SHOW_MENU_LIST_ITEM, $show_menu_list_item ? '1' : '0');
+			$this->setPreference(self::PREF_TABLE_LAYOUT, $table_layout);
+			$this->setPreference(self::PREF_DEBUGGING_ACTIVATED, $debugging_activated ? '1' : '0');
         }
 
         //Finally, show a success message
         $message = I18N::translate('The preferences for the module "%s" were updated.', $this->title());
-        FlashMessages::addMessage($message, 'success');	
+        FlashMessages::addMessage($message, 'success');
 
         return redirect($this->getConfigLink());
     }
@@ -560,7 +482,7 @@ class CustomModuleManager extends AbstractModule implements
                 $test_result = $module_update_service !== null ? substr($module_update_service->testModuleUpdate(), 0, self::ERROR_MAX_LENGTH) : 'Error';
 
                 if ($test_result !== '') {
-                    //Trigger rollback of the udpated module                
+                    //Trigger rollback of the udpated module
                     $this->setPreference(CustomModuleManager::PREF_ROLLBACK_ONGOING, '1');
 
                     $modal = Validator::queryParams($request)->boolean('modal', false);
@@ -604,13 +526,13 @@ class CustomModuleManager extends AbstractModule implements
         if ($updated) {
             //Show flash message for update of preferences
             $message = I18N::translate('The preferences for the custom module "%s" were sucessfully updated to the new module version %s.', $this->title(), self::CUSTOM_VERSION);
-            FlashMessages::addMessage($message, 'success');	
+            FlashMessages::addMessage($message, 'success');
         }
     }
 
     /**
      * Gemerate default titles and descriptions for all custom modules, which are available in this webtrees installation
-     * 
+     *
      * If a (complete) list of modules is installed, we can use the generate a (complete) list of default values for all languages,
      * The default values are written to a PHP file, which is delivered with the Custom Module Manager code.
      *
@@ -628,9 +550,13 @@ class CustomModuleManager extends AbstractModule implements
 
         $languages = $module_service->findByInterface(ModuleLanguageInterface::class, true, true)
             ->mapWithKeys(static function (ModuleLanguageInterface $module): array {
-                $locale = $module->locale();
-
-                return [$locale->languageTag() => $locale->endonym()];
+                if (version_compare(Webtrees::VERSION, '2.3', '>=')) {
+                    $language = $module->language();
+                }
+                else {
+                    $language = $module->locale();
+                }
+                return [$language->languageTag() => $language->endonym()];
             });
 
         foreach ($languages as $language_tag => $language_name) {
@@ -651,7 +577,7 @@ class CustomModuleManager extends AbstractModule implements
                 $descriptions[$language_tag][$module->name()] = $description;
             }
         }
- 
+
         //Reset language
         I18N::init($current_language);
         Session::put('language', $current_language);
@@ -668,7 +594,7 @@ class CustomModuleManager extends AbstractModule implements
             $titles_for_language = $titles[$language_tag];
 
             foreach ($titles_for_language as $module_name => $title) {
-                
+
                 if ($title === $titles_for_default_language[$module_name]) {
                     unset($titles[$language_tag][$module_name]);
                 }
@@ -677,7 +603,7 @@ class CustomModuleManager extends AbstractModule implements
             $descriptions_for_language = $descriptions[$language_tag];
 
             foreach ($descriptions_for_language as $module_name => $description) {
-                
+
                 if ($description === $descriptions_for_default_language[$module_name]) {
                     unset($descriptions[$language_tag][$module_name]);
                 }
@@ -698,7 +624,7 @@ class CustomModuleManager extends AbstractModule implements
 
         if (fwrite($stream, "<?php\n\n") === false) {
             throw new RuntimeException('Cannot write to file: ' . $json_file);
-        }        
+        }
 
         fwrite($stream, "declare(strict_types=1);\n\n");
         fwrite($stream, "namespace Jefferson49\Webtrees\Module\CustomModuleManager\Configuration;\n\n");
@@ -746,7 +672,7 @@ class CustomModuleManager extends AbstractModule implements
      */
     public static function generateModuleUpdateServiceConfig(): void {
 
-        $json_file = __DIR__ . '/Configuration/module_update_service_configuration.json';
+        $json_file = __DIR__ . self::PATH_LOCAL_CONFIG;
 
         //Delete file if already existing
         if (file_exists($json_file)) {
@@ -758,22 +684,8 @@ class CustomModuleManager extends AbstractModule implements
             throw new RuntimeException('Cannot open file: ' . $json_file);
         }
 
-        //Get configuration
-		$config = (array) ModuleUpdateServiceConfiguration::MODULE_UPDATE_SERVICE_CONFIG;
-
-        //Add titles and descriptions
-        $titles_all_languages = DefaultTitlesAndDescriptions::MODULE_TITLES;
-        $descriptions_all_languages = DefaultTitlesAndDescriptions::MODULE_DESCRIPTIONS;        
-        $titles = json_decode($titles_all_languages[CustomModuleManager::DEFAULT_LANGUAGE], true);
-        $descriptions = json_decode($descriptions_all_languages[CustomModuleManager::DEFAULT_LANGUAGE], true);
-
-        foreach ($config as $module_name => $module_config) {
-            $config[$module_name]['params']['title']       = $titles[$module_name] ?? '';
-            $config[$module_name]['params']['description'] = $descriptions[$module_name] ?? '';
-        }
-        
-        //Create JSON
-        $json_config = json_encode($config);
+        //Create JSON from configuration
+        $json_config = json_encode(self::getConfig(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 
         try {
             fwrite($stream, $json_config);
@@ -786,25 +698,519 @@ class CustomModuleManager extends AbstractModule implements
     }
 
     /**
+     * Gemerate a custom module list in based on the Packagist API v2 JSON format
+     *
+     * Documentation:     https://packagist.org/apidoc#get-package-data
+     * Example JSON file: https://repo.packagist.org/p2/monolog/monolog.json
+     *
+     * @param
+     *
+     * @return bool $replace_existing_versions  Whether data of existing versions shall be replaced
+     */
+    public function generateCustomModuleList(bool $replace_existing_versions = false): void {
+
+        //Load existing custom module list
+        $custom_module_list = self::loadCustomModuleList();
+
+        $config = self::getConfig();
+
+        $modified = false;
+
+        foreach ($config as $module_name => $module_config) {
+
+            /** @var PlatformModuleUpdate $module_update_service */
+            $module_update_service = CustomModuleUpdateFactory::make($module_name);
+
+            //Skip if module update service or module is not available
+            if ($module_update_service === null) {
+                continue;
+            }
+            elseif ($module_update_service->getModule() === null) {
+                continue;
+            }
+
+            //Get the module version
+            $version      = CustomModuleManager::normalizeVersion($module_name, $module_update_service->customModuleVersion());
+            $package_name = $module_update_service->getPackageName();
+
+            //If current module version is not available
+            if ($version === '') {
+                $version = self::VERSION_NOT_AVAILABLE;
+            }
+
+            //If the version is not included in the list yet or we shall replace the existing version
+            if (!self::versionIsInList($custom_module_list, $package_name, $version) OR $replace_existing_versions) {
+
+                //Get the content of the current composer.json file
+                $composer_json = self::getComposerJson($module_update_service::getInstallationFolderFromModuleName($module_name));
+
+                //If we were not able to read composer.json data from the file, we try to retrieve it from GitHub
+                if ($composer_json === [] && in_array($module_update_service::NAME, [GithubModuleUpdate::NAME, CodebergModuleUpdate::NAME], true)) {
+
+                    $tag        = $version;
+                    $tag_prefix = $module_update_service->getTagPrefix();
+
+                    //Add prefix, if the tags of the repository have a prefix
+                    if ($tag_prefix !== '') {
+                        if ($tag !== '' && strlen($tag) > strlen($tag_prefix)) {
+
+                            //If tag does not start with prefix, add prefix
+                            if (substr($tag, 0, strlen($tag_prefix)) !== $tag_prefix) {
+                                $tag = $tag_prefix . $tag;
+                            }
+                        }
+                    }
+
+                    try {
+                        if (in_array($module_update_service::NAME, [CodebergModuleUpdate::NAME, GithubModuleUpdate::NAME])) {
+                            $json = $module_update_service->getTextFileContent($module_update_service->getRepository(), $tag, 'composer.json');
+                        }
+
+                        $composer_json = json_decode($json, true);
+                    }
+                    catch (HostingPlatformCommunicationError $e) {
+                        //Fail gracefully if communication with GitHub failed
+                    }
+                }
+
+                //Get existing module versions
+                $module_versions = $custom_module_list['packages'][$package_name] ?? [];
+
+                //Add additional content to composer.json data
+                $composer_json['version'] = $version;
+
+                if (!isset($composer_json['time']) && in_array($module_update_service::NAME, [GithubModuleUpdate::NAME, CodebergModuleUpdate::NAME], true)) {
+                    $release_info = $module_update_service->fetchReleasesInfoCached();
+
+                    if (isset($release_info['published_at'])) {
+
+                        $dt = new DateTimeImmutable($release_info['published_at']);
+                        $composer_json['time'] = $dt->format("Y-m-d");
+                    }
+                }
+                // If no conflict rule is available, copy conflict rule from version before
+                if (!isset($composer_json['conflict'])) {
+
+                    $version_before = self::getVersionBefore($module_versions, $version);
+
+                    foreach ($module_versions as $module_version) {
+
+                        if ($module_version['version'] === $version_before && isset($module_version['conflict'])) {
+
+                            $composer_json['conflict'] = $module_version['conflict'];
+                        }
+                    }
+
+                }
+                if (!isset($composer_json['name'])) {
+                    $composer_json['name'] = $package_name;
+                }
+                if (!isset($composer_json['description'])) {
+                    $composer_json['description'] = $module_update_service->description();
+                }
+                if (!isset($composer_json['authors'])) {
+
+                    $module = $module_update_service->getModule();
+
+                    if ($module !== null && $module->customModuleAuthorName() !== '') {
+                        $composer_json['authors'] = [['name' => $module->customModuleAuthorName()]];
+                    }
+                }
+
+                $extra = ['module_name' => $module_name] + $config[$module_name];
+                $composer_json['extra'] = ['custom-module-manager' => $extra];
+
+                //Sort composer.json data
+                self::sortComposerJsonData($composer_json);
+
+                //Remove data for version if already exists
+                self::removeVersion($custom_module_list, $package_name, $version);
+
+                //If package already exists, add the data of the new version at the beginning of the module list
+                if (isset($custom_module_list['packages'][$package_name])) {
+
+                    array_unshift($custom_module_list['packages'][$package_name], $composer_json);
+                }
+                //Otherwise, add as new package
+                else {
+                    $custom_module_list['packages'][$package_name][] = $composer_json;
+                }
+
+                $modified = true;
+            }
+        }
+
+        if ($modified) {
+            //Sort the module list by package name
+            ksort($custom_module_list['packages']);
+
+            //Save the custom module list
+            self::saveCustomModuleList($custom_module_list);
+        }
+
+        return;
+    }
+
+    /**
+     * Gemerate a custom module list in based on the Packagist API v2 JSON format
+     *
+     * @return void
+     */
+    public function addConflictsForModulesNotExisting(): void {
+
+        //Load existing custom module list
+        $custom_module_list = self::loadCustomModuleList();
+        $modifed = false;
+
+        $config = self::getConfig();
+
+        foreach ($config as $module_name => $module_config) {
+
+            /** @var PlatformModuleUpdate $module_update_service */
+            $module_update_service = CustomModuleUpdateFactory::make($module_name);
+
+            if ($module_update_service === null) {
+                break;
+            }
+
+            $package_name = $module_update_service->getPackageName();
+
+            //Add a conflict with the current webtrees version, if module is not availalbe
+            if (    $module_update_service->getModule() === null
+                &&  isset($custom_module_list['packages'][$package_name])) {
+
+                $latest_version = end($custom_module_list['packages'][$package_name]);
+                $version        = $latest_version['version'];
+
+                //Add a conflict with the current webtrees version
+                if (!isset($latest_version['conflict']['fisharebest/webtrees'])) {
+
+                    $latest_version['conflict'] = ['fisharebest/webtrees' => '>=' . Webtrees::VERSION];
+                }
+                //Append a conflict
+                elseif (strpos($latest_version['conflict']['fisharebest/webtrees'], '>=' . Webtrees::VERSION) === false) {
+                    $latest_version['conflict']['fisharebest/webtrees'] .= ' || >=' . Webtrees::VERSION;
+                }
+
+                //Sort
+                self::sortComposerJsonData($latest_version);
+
+                //Remove data for version if already exists
+                self::removeVersion($custom_module_list, $package_name, $version);
+
+                //Add updated version data
+                $custom_module_list['packages'][$package_name][] = $latest_version;
+                $modifed = true;
+            }
+        }
+
+        if ($modifed) {
+            self::saveCustomModuleList($custom_module_list);
+        }
+    }
+
+    /**
+     * Load custom module list
+     *
+     * @return array
+     */
+    public static function loadCustomModuleList(): array {
+
+        $json_file = __DIR__ . self::PATH_CUSTOM_MODULE_LIST;
+
+        //Get the data from the JSON custom module list
+        return json_decode(self::readFromFile($json_file), true) ?? [];
+    }
+
+    /**
+     * Save custom module list
+     *
+     * @param array $custom_module_list
+     * @return void
+     */
+    public static function saveCustomModuleList(array $custom_module_list): void {
+
+        $json_file = __DIR__ . self::PATH_CUSTOM_MODULE_LIST;
+
+        //Create JSON
+        $json_custom_module_list = json_encode($custom_module_list, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
+        //Delete file if already existing
+        if (file_exists($json_file)) {
+            unlink($json_file);
+        }
+
+        //Write JSON to file
+        try {
+            if (!$stream = fopen($json_file, "c")) {
+                throw new RuntimeException('Cannot open file: ' . $json_file);
+            }
+            fwrite($stream, $json_custom_module_list);
+            fclose($stream);
+        }
+        catch (Throwable $th) {
+            throw new RuntimeException('Cannot write to file: ' . $json_file);
+        }
+
+        return;
+
+    }
+
+    /**
+     * Get the configuration
+     *
+     * @return array
+     */
+    public static function getConfig(): array {
+
+        // If the config is already available, take it
+        if (!empty(self::$configuration)) {
+            return self::$configuration;
+        }
+
+        //Get data from current a json file (either local or remote)
+        $config_from_file = ModuleUpdateServiceConfiguration::getModuleUpdateServiceConfig();
+
+        //Get the configuration from the code
+		$configuration = (array) ModuleUpdateServiceConfiguration::MODULE_UPDATE_SERVICE_CONFIG;
+
+        //Add titles and descriptions
+        $titles_all_languages = DefaultTitlesAndDescriptions::MODULE_TITLES;
+        $descriptions_all_languages = DefaultTitlesAndDescriptions::MODULE_DESCRIPTIONS;
+        $titles = json_decode($titles_all_languages[CustomModuleManager::DEFAULT_LANGUAGE], true);
+        $descriptions = json_decode($descriptions_all_languages[CustomModuleManager::DEFAULT_LANGUAGE], true);
+
+        foreach ($configuration as $module_name => $module_config) {
+            $configuration[$module_name]['params']['title']       = $titles[$module_name] ?? '';
+            $configuration[$module_name]['params']['description'] = $descriptions[$module_name] ?? '';
+        }
+
+        //Date added
+        foreach ($configuration as $module_name => $module_config) {
+
+            //If date added does not exist already, we insert the current date
+            if (!isset($config_from_file[$module_name]['date_added'])) {
+                $configuration[$module_name]['date_added'] = date("Y-m-d");
+            }
+            //Otherwise, we take the existing value
+            else {
+                $configuration[$module_name]['date_added'] = $config_from_file[$module_name]['date_added'];
+            }
+        }
+
+        self::$configuration = $configuration;
+
+        return $configuration;
+    }
+
+    /**
+     * Get content of a module composer.json file decoded as an array
+     *
+     * @param string $module_folder
+     *
+     * @return array
+     */
+    public static function getComposerJson(string $module_folder): array {
+
+        $json_file = __DIR__ . '/../../' . $module_folder . '/composer.json';
+
+        //Get data from current JSON custom module list
+        $json = self::readFromFile($json_file);
+
+        $composer_json = json_decode($json, true);
+
+        return $composer_json ?? [];
+    }
+
+    /**
+     * Sort composer.json data
+     *
+     * @return void
+     */
+    public static function sortComposerJsonData(array &$composer_json): void {
+
+        uksort($composer_json, function ($a, $b) {
+
+                $property_order = [
+                    'version',
+                    'time',
+                    'conflict',
+                    'name',
+                    'description',
+                    'extra',
+                    'require',
+                    'require-dev',
+                    'minimum-stability',
+                    'prefer-stable',
+                    'replace',
+                    'authors',
+                    'homepage',
+                    'readme',
+                    'support',
+                    'type',
+                    'keywords',
+                    'license',
+                    'repositories',
+                    'custom_repositories',
+                    'config',
+                    'autoload',
+                    'autoload-dev',
+                    'archive',
+                    'scripts',
+                    'scripts-descriptions',
+                ];
+
+                $orderMap = array_flip($property_order);
+
+                $hasA = isset($orderMap[$a]);
+                $hasB = isset($orderMap[$b]);
+
+                if ($hasA && $hasB) {
+                    return $orderMap[$a] <=> $orderMap[$b];
+                }
+                else if ($hasA) {
+                    return -1;
+                }
+                else if ($hasB) {
+                    return 1;
+                }
+                else {
+                    return strcmp($a, $b);
+                }
+            }
+        );
+
+        return;
+    }
+
+    /**
+     * Whether a certain module version exists
+     *
+     * @param array  $module_versions
+     * @param string $version
+     *
+     * @return bool
+     */
+    public static function versionExists(array $module_versions, string $version): bool {
+
+        foreach($module_versions as $module_version) {
+
+            if ($module_version['version'] === $version) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Get version before
+     *
+     * @param array  $module_versions
+     * @param string $version
+     *
+     * @return string
+     */
+    public static function getVersionBefore(array $module_versions, string $version): string {
+
+        uasort($module_versions, function (array $a, array $b) {
+                Comparator::greaterThan($a['version'], $b['version']) ? -1 : 1;
+            }
+        );
+
+        $version_before = '';
+
+        foreach($module_versions as $module_version) {
+
+            if (Comparator::greaterThanOrEqualTo($module_version['version'], $version)) {
+                return $version_before;
+            }
+
+            $version_before = $module_version['version'];
+        }
+
+        return $version_before;
+    }
+
+    /**
+     * Whether a version for a custom module is in the custom module list
+     *
+     * @param array  $custom_module_list
+     * @param string $package_name
+     * @param string $version
+     *
+     * @return bool
+     */
+    public static function versionIsInList(array &$custom_module_list, string $package_name, string $version): bool {
+
+        if (isset($custom_module_list['packages'][$package_name])) {
+            $module_versions = $custom_module_list['packages'][$package_name];
+        }
+        else {
+            //Package name not in list
+            return false;
+        }
+
+        if (self::versionExists($module_versions, $version)) {
+            return true;
+        }
+
+        //Version not found
+        return false;
+    }
+
+    /**
+     * Remove version
+     *
+     * @param array  $custom_module_list
+     * @param string $package_name
+     * @param string $version
+     *
+     * @return void
+     */
+    public static function removeVersion(array &$custom_module_list, string $package_name, string $version): void {
+
+        $reduced_module_versions = [];
+
+        if (isset($custom_module_list['packages'][$package_name])) {
+            $module_versions = $custom_module_list['packages'][$package_name];
+        }
+        else {
+            return;
+        }
+
+        foreach($module_versions as $module_version) {
+            if ($module_version['version'] !== $version) {
+                $reduced_module_versions[] = $module_version;
+            }
+        }
+
+        //Replace module versions with reduced versions
+        $custom_module_list['packages'][$package_name] = $reduced_module_versions;
+
+        return;
+    }
+
+    /**
      * Compare two module version number strings
      *
      * @param string $module_name
      * @param string $version1,
      * @param string $version2,
-     * 
+     *
      * @return int Returns -1 if the first version is lower than the second, 0 if they are equal, and 1 if the second is lower
      */
     public static function versionCompare(string $module_name, string $version1, $version2): int
     {
         return version_compare(self::normalizeVersion($module_name, $version1), self::normalizeVersion($module_name, $version2));
-    }      
+    }
 
     /**
      * Normalize a module version number strings
      *
      * @param string $module_name
      * @param string $version,
-     * 
+     *
      * @return string
      */
     public static function normalizeVersion(string $module_name, string $version): string
@@ -820,7 +1226,7 @@ class CustomModuleManager extends AbstractModule implements
             // Only replace if prefix found once at start of version string
             if (strpos($version, $prefix_list[$module_name], 0) === 0 && $count === 1) {
 
-                // Replace 
+                // Replace
                 $version = $replaced_version;
             }
         }
@@ -843,19 +1249,20 @@ class CustomModuleManager extends AbstractModule implements
     }
 
     /**
-     * Remember if a GitHub communication occured. Return true if it is the force occurance
+     * Remember if a communication with the platform occured. Return true if it is the first occurance
      *
+     * @param $error_message  An optional error message, which might be used for logging
      * @return bool
      */
-    public static function rememberGithubCommunciationError(): bool {
+    public static function rememberPlatformCommunciationError($error_message = ''): bool {
 
-        //If GitHub communication has already occured before
-        if (self::$github_communication_error) {
+        //If communication error has already occured before
+        if (self::$platform_communication_error) {
             return true;
         }
 
         //Remember error for further requests
-        self::$github_communication_error = true;
+        self::$platform_communication_error = true;
 
         return false;
     }
@@ -889,5 +1296,89 @@ class CustomModuleManager extends AbstractModule implements
         }
 
         return self::$is_lower_than_latest_version ?? false;
+    }
+
+    /**
+     * Get a short module name, for example to be used for storing module preferences
+     *
+     * @param string $module_name
+     *
+     * @return string
+     */
+    public static function getShortModuleName(string $module_name): string {
+
+        return substr($module_name, 0, 25) . '_';
+    }
+
+    /**
+     * Read the content of a file to a string
+     *
+     * @param string $file
+     *
+     * @return string
+     */
+    public static function readFromFile(string $file): string {
+
+        try {
+            //Code from: Fisharebest\Webtrees\Cli\Commands\TreeImport, last check: 2026-08-28
+            $total_bytes  = filesize($file);
+            $bytes_loaded = 0;
+
+            $fp = fopen($file, 'rb');
+            $buffer = '';
+
+            while ($bytes_loaded < $total_bytes) {
+                $tmp = fread($fp, 8192);
+                $buffer .= $tmp;
+                $bytes_loaded += strlen($tmp);
+            }
+        }
+        catch (Throwable $th) {
+            // Fail gracefully
+            $buffer = '';
+        }
+
+        return $buffer;
+    }
+
+    /**
+     * Check whether a given webtrees version conflicts with a
+     * conflict rule (e.g. ">2.1 || <=2.3") using Composer\Semver.
+     *
+     * @param string $webtrees_version  The version to check (e.g. "2.0.9")
+     * @param string $conflict_rule     The conflict constraint (e.g. ">2.1 || <=2.3")
+     *
+     * @return bool  True if the version conflicts, false otherwise.
+     *
+     * @throws InvalidArgumentException If version or constraint are invalid.
+     */
+    public static function webtreesVersionSatifiesConflictRule(string $webtrees_version, string $conflict_rule): bool
+    {
+        if ($conflict_rule === '' OR $conflict_rule === null) {
+            throw new InvalidArgumentException("Conflict rule must not be empty.");
+        }
+
+        if ($webtrees_version === '' OR $webtrees_version === null) {
+            throw new InvalidArgumentException("Webtrees version must not be empty.");
+        }
+
+        $parser = new VersionParser();
+
+        // Validate version
+        try {
+            $parser->normalize($webtrees_version);
+        } catch (Exception $e) {
+            throw new InvalidArgumentException("Invalid webtrees version '{$webtrees_version}': " . $e->getMessage());
+        }
+
+        // Validate constraint
+        try {
+            $parser->parseConstraints($conflict_rule);
+        } catch (Exception $e) {
+            throw new InvalidArgumentException("Invalid conflict rule '{$conflict_rule}': " . $e->getMessage());
+        }
+
+        // Perform actual conflict check
+        return Semver::satisfies($webtrees_version, $conflict_rule);
     }
 }

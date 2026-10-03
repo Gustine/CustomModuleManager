@@ -7,6 +7,8 @@ use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Module\ModuleConfigInterface;
 use Jefferson49\Webtrees\Internationalization\MoreI18N;
 use Fisharebest\Webtrees\Module\ModuleCustomInterface;
+use Jefferson49\Webtrees\Module\CustomModuleManager\Enums\CustomModuleStatus;
+use Jefferson49\Webtrees\Module\CustomModuleManager\ModuleUpdates\CodebergModuleUpdate;
 use Jefferson49\Webtrees\Module\CustomModuleManager\ModuleUpdates\CustomModuleUpdateInterface;
 use Jefferson49\Webtrees\Module\CustomModuleManager\ModuleUpdates\VestaModuleUpdate;
 use Jefferson49\Webtrees\Module\CustomModuleManager\ModuleUpdates\GithubModuleUpdate;
@@ -22,11 +24,10 @@ use function view;
  * @var string                      $module_title
  * @var string                      $module_description
  * @var bool                        $show_default_description
- * @var string                      $module_status
+ * @var CustomModuleStatus          $module_status
  * @var bool                        $is_theme
  * @var string                      $category
  * @var string                      $current_version
- * @var string                      $latest_version
  * @var string                      $installation_folder
  * @var string                      $documentation_url
  */
@@ -38,7 +39,7 @@ use function view;
 <div class="modal-body">
 
     <div class="h4">
-        <?= MoreI18N::xlate('Title') ?>	
+        <?= MoreI18N::xlate('Title') ?>
     </div>
     <div class="row mb-3">
         <p>
@@ -47,20 +48,20 @@ use function view;
     </div>
 
     <div class="h4">
-        <?= MoreI18N::xlate('Description') ?>	
+        <?= MoreI18N::xlate('Description') ?>
     </div>
     <div class="row mb-3">
         <p>
             <?php if ($show_default_description) : ?>
                 <?= CustomModuleManager::DEFAULT_LANGUAGE_PREFIX ?><br>
-            <?php endif ?>	
+            <?php endif ?>
             <?= e($module_description) ?>
         </p>
     </div>
-    
+
     <?php if ($documentation_url !== '') : ?>
         <div class="h4">
-            <?= I18N::translate('Documentation') ?>	
+            <?= I18N::translate('Documentation') ?>
         </div>
         <div class="wt-custom-module-info">
             <?php if ($module_update_service_name === VestaModuleUpdate::NAME) : ?>
@@ -77,22 +78,16 @@ use function view;
             </a>
         </div>
         <br>
-    <?php endif ?>        
+    <?php endif ?>
 
     <div class="h4">
-        <?= MoreI18N::xlate('Module Information') ?>	
+        <?= MoreI18N::xlate('Module Information') ?>
     </div>
 
     <div class="wt-custom-module-info">
         <?= view('icons/information') ?>
         <?= MoreI18N::xlate('Status') . ': ' ?>
-            <?php if ($module_status === '0') : ?>
-                <?= I18N::translate('Disabled') ?>
-            <?php elseif ($module_status === '1') : ?>
-                <?= MoreI18N::xlate('Enabled') ?>
-            <?php else : ?>
-                <?= e($module_status) ?>
-            <?php endif ?>
+        <?= $module_status->label() ?>
         <br>
         <?php if ($module_update_service_name !== '') : ?>
             <?= view('icons/information') ?>
@@ -110,10 +105,6 @@ use function view;
             <?=  e(CustomModuleManager::normalizeVersion($module_name, $current_version)) ?>
             <br>
         <?php endif ?>
-        <?= view('icons/module') ?>
-        <?= I18N::translate('Latest Version') . ': ' ?>
-        <?=  e(CustomModuleManager::normalizeVersion($module_name, $latest_version)) ?>
-        <br>
         <?php if ($module_update_service_name === VestaModuleUpdate::NAME) : ?>
             <?= view('icons/link') ?>
             <?= I18N::translate('⚶ Vesta homepage') . ': ' ?>
@@ -123,15 +114,15 @@ use function view;
             </a>
             <br>
         <?php endif ?>
-        <?php if ($module_update_service_name === GithubModuleUpdate::NAME OR $module_update_service_name === VestaModuleUpdate::NAME) : ?>
+        <?php if (in_array($module_update_service_name, [GithubModuleUpdate::NAME, CodebergModuleUpdate::NAME, VestaModuleUpdate::NAME])) : ?>
             <?= view('icons/link') ?>
-            <?= I18N::translate('GitHub repository') . ': ' ?>
+            <?= I18N::translate('%s repository', $module_update_service->getHostingPlatform()) . ': ' ?>
             <a href="<?= e($documentation_url) ?>" target="blank">
-                <?= e($module_update_service->getGithubRepo()) ?>
+                <?= e($module_update_service->getRepository()) ?>
             </a>
             <br>
             <?= view('icons/link') ?>
-            <?= 'GitHub '?>
+            <?= $module_update_service->getHostingPlatform() . ' ' ?>
             <a href="<?= e($documentation_url . '/issues') ?>" target="blank">
                 <?= MoreI18N::xlate('Issues') ?>
             </a>
@@ -172,6 +163,6 @@ use function view;
             'module' => $module,
         ]) ?>
     <?php endif ?>
-</div>    
+</div>
 
 <?= view('modals/footer-close') ?>

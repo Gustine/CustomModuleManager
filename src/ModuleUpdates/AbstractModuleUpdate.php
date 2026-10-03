@@ -2,11 +2,11 @@
 
 /**
  * webtrees: online genealogy
- * Copyright (C) 2025 webtrees development team
+ * Copyright (C) 2026 webtrees development team
  *                    <http://webtrees.net>
  *
  * CustomModuleManager (webtrees custom module):
- * Copyright (C) 2025 Markus Hemprich
+ * Copyright (C) 2026 Markus Hemprich
  *                    <http://www.familienforschung-hemprich.de>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -20,11 +20,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  *
- * 
+ *
  * CustomModuleManager
  *
  * A weebtrees(https://webtrees.net) 2.2 custom module to manage custom modules
- * 
+ *
  */
 
 declare(strict_types=1);
@@ -37,15 +37,18 @@ use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Module\ModuleCustomInterface;
 use Fisharebest\Webtrees\Services\ModuleService;
 use Fisharebest\Webtrees\Webtrees;
-use GuzzleHttp\Client;
-use GuzzleHttp\Exception\GuzzleException;
-use GuzzleHttp\Exception\RequestException;
 use Illuminate\Support\Collection;
+use Jefferson49\Webtrees\Exceptions\HostingPlatformCommunicationError;
+use Jefferson49\Webtrees\Helpers\Functions;
+use Jefferson49\Webtrees\Helpers\PlatformService;
 use Jefferson49\Webtrees\Internationalization\MoreI18N;
+use Jefferson49\Webtrees\Log\CustomModuleLog;
 use Jefferson49\Webtrees\Module\CustomModuleManager\Configuration\ModuleUpdateServiceConfiguration;
 use Jefferson49\Webtrees\Module\CustomModuleManager\CustomModuleManager;
+use Jefferson49\Webtrees\Module\CustomModuleManager\Enums\CustomModuleCompatibility;
 use Jefferson49\Webtrees\Module\CustomModuleManager\Factories\CustomModuleUpdateFactory;
 
+use InvalidArgumentException;
 use Throwable;
 
 
@@ -55,13 +58,22 @@ use Throwable;
 abstract class AbstractModuleUpdate
 {
     //The custom module name
-    protected string $module_name; 
+    protected string $module_name;
 
     //The category of the custom module
     protected string $category = '';
 
+    //The list of conflicts of the custom module
+    /** @var $conflicts array<string>  version => conflict rule for version*/
+    protected array $conflicts = [];
+
+
     //Whether the module shall be installed clean, i.e. all earlier files are deleted before installation
     protected bool $install_clean = false;
+
+    //Whether the module can only be updated manually (and shall not be updated with CustomModuleManager)
+    protected bool $update_manually = false;
+
 
     /**
      * The name of the module update service
@@ -69,7 +81,7 @@ abstract class AbstractModuleUpdate
      * @return string
      */
     abstract public function name(): string;
-    
+
     /**
      * A unique internal name for the module (based on the installation folder).
      *
@@ -91,7 +103,7 @@ abstract class AbstractModuleUpdate
         $module = $module_service->findByName($this->module_name, true);
 
         if ($module !== null && class_implements(ModuleCustomInterface::class)) {
-            return $module;            
+            return $module;
         }
 
         return null;
@@ -101,7 +113,7 @@ abstract class AbstractModuleUpdate
      * How should the module be identified in the control panel, etc.?
      *
      * @param string $language_tag
-     * 
+     *
      * @return string
      */
     public function title(string $language_tag = CustomModuleManager::DEFAULT_LANGUAGE): string {
@@ -115,7 +127,7 @@ abstract class AbstractModuleUpdate
      * A description of the module
      *
      * @param string $language_tag
-     * 
+     *
      * @return string
      */
     public function description(string $language_tag = CustomModuleManager::DEFAULT_LANGUAGE): string {
@@ -127,17 +139,17 @@ abstract class AbstractModuleUpdate
 
     /**
      * Whether the module is a Theme
-     * 
+     *
      * @return bool
      */
     public function moduleIsTheme(): bool {
 
         return $this->category === ModuleUpdateServiceConfiguration::CATEGORY_THEME;
     }
-    
+
     /**
      * Get the module category
-     * 
+     *
      * @return string
      */
     public function getCategory(): string {
@@ -145,53 +157,84 @@ abstract class AbstractModuleUpdate
         switch ($this->category) {
             case ModuleUpdateServiceConfiguration::CATEGORY_ADMIN:
                 return MoreI18N::xlate('Administrator');
-            case ModuleUpdateServiceConfiguration::CATEGORY_CHARTS: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_CHARTS:
                 return MoreI18N::xlate('Charts');
-            case ModuleUpdateServiceConfiguration::CATEGORY_CLIPPINGS_CART: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_CLIPPINGS_CART:
                 return MoreI18N::xlate('Clippings cart');
             case ModuleUpdateServiceConfiguration::CATEGORY_EMAIL:
                 return MoreI18N::xlate('Email');
-            case ModuleUpdateServiceConfiguration::CATEGORY_FACT: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_FACT:
                 return MoreI18N::xlate('Facts and events');
-            case ModuleUpdateServiceConfiguration::CATEGORY_FOOTER: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_FOOTER:
                 return MoreI18N::xlate('Footer');
-            case ModuleUpdateServiceConfiguration::CATEGORY_FRONTEND: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_FRONTEND:
                 return I18N::translate('Frontend');
-            case ModuleUpdateServiceConfiguration::CATEGORY_FRONTEND_TAB: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_FRONTEND_TAB:
                 return I18N::translate('Frontend') . ' ' . MoreI18N::xlate('Tab');
-            case ModuleUpdateServiceConfiguration::CATEGORY_FRONTEND_SIDEBAR: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_FRONTEND_SIDEBAR:
                 return I18N::translate('Frontend') . ' ' . MoreI18N::xlate('Sidebar');
             case ModuleUpdateServiceConfiguration::CATEGORY_GEDCOM:
                 return MoreI18N::xlate('GEDCOM');
-            case ModuleUpdateServiceConfiguration::CATEGORY_LANGUAGE: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_LANGUAGE:
                 return MoreI18N::xlate('Language');
-            case ModuleUpdateServiceConfiguration::CATEGORY_MAP: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_MAP:
                 return MoreI18N::xlate('Map');
-            case ModuleUpdateServiceConfiguration::CATEGORY_MESSAGES: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_MESSAGES:
                 return MoreI18N::xlate('Messages');
-            case ModuleUpdateServiceConfiguration::CATEGORY_MEDIA: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_MEDIA:
                 return MoreI18N::xlate('Media');
-            case ModuleUpdateServiceConfiguration::CATEGORY_MENU: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_MENU:
                 return MoreI18N::xlate('Menu');
-            case ModuleUpdateServiceConfiguration::CATEGORY_NONE: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_NONE:
                 return MoreI18N::xlate('None');
-            case ModuleUpdateServiceConfiguration::CATEGORY_PLACES: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_PLACES:
                 return MoreI18N::xlate('Places');
-            case ModuleUpdateServiceConfiguration::CATEGORY_REPORTS: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_REPORTS:
                 return MoreI18N::xlate('Reports');
-            case ModuleUpdateServiceConfiguration::CATEGORY_SIGNIN: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_SIGNIN:
                 return MoreI18N::xlate('Sign in');
-            case ModuleUpdateServiceConfiguration::CATEGORY_SOURCES: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_SOURCES:
                 return MoreI18N::xlate('Sources');
             case ModuleUpdateServiceConfiguration::CATEGORY_TAGS:
                 return I18N::translate('Tags');
-            case ModuleUpdateServiceConfiguration::CATEGORY_THEME: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_THEME:
                 return MoreI18N::xlate('Theme');
-            case ModuleUpdateServiceConfiguration::CATEGORY_DATA_VALIDATION: 
+            case ModuleUpdateServiceConfiguration::CATEGORY_DATA_VALIDATION:
                 return I18N::translate('Data validation');
             default:
                 return  '';
         }
+    }
+
+    /**
+     * Get the date when the module was added to the module list of Custom Module Manager
+     *
+     * @return string
+     */
+    public function getDateAdded(): string {
+
+        $standard_module_name = ModuleUpdateServiceConfiguration::getStandardModuleName($this->module_name);
+
+        return ModuleUpdateServiceConfiguration::getDateAdded($standard_module_name);
+    }
+
+    /**
+     * Get the repository of the module
+     *
+     * @return string
+     */
+    public function getRepository(): string {
+        return '';
+    }
+
+    /**
+     * Get the hosting platform of the module, e.g. GitHub or Codeberg
+     *
+     * @return string
+     */
+    public function getHostingPlatform(): string
+    {
+        return '';
     }
 
     /**
@@ -213,8 +256,8 @@ abstract class AbstractModuleUpdate
     /**
      * Fetch the latest version of this module
      *
-     * @param bool $fetch_latest  Whether to fetch the latest version, e.g. from a Github repository 
-     * 
+     * @param bool $fetch_latest  Whether to fetch the latest version, e.g. from a Github repository
+     *
      * @return string
      */
     public function customModuleLatestVersion(bool $fetch_latest = false): string
@@ -230,9 +273,9 @@ abstract class AbstractModuleUpdate
 
     /**
      * A default name for a custom module based on the installation folder
-     * 
+     *
      * @param string $installation_folder_name  The installation folder in modules_v4
-     * 
+     *
      * @return string
      */
     public static function defaultModuleName(string $installation_folder_name): string
@@ -242,9 +285,9 @@ abstract class AbstractModuleUpdate
 
     /**
      * Get installation folder name from custom module name
-     * 
+     *
      * @param string $module_name  A custom module name
-     * 
+     *
      * @return string
      */
     public static function getInstallationFolderFromModuleName(string $module_name): string
@@ -280,7 +323,7 @@ abstract class AbstractModuleUpdate
     /**
      * Get a list of all module names, which are needed to perform updates with this update service
      * Background: Update services like Vesta might need several modules in parallel
-     * 
+     *
      * @return array<string> module_name => standard_module_name
      */
     public function getModuleNamesToUpdate(): array {
@@ -288,11 +331,11 @@ abstract class AbstractModuleUpdate
         $standard_module_name = ModuleUpdateServiceConfiguration::getStandardModuleName($this->module_name);
 
         return [$this->module_name => $standard_module_name];
-    }    
+    }
 
     /**
      * Test a module update
-     * 
+     *
      * @return string Error message or empty string if no error
      */
     public function testModuleUpdate(): string
@@ -316,7 +359,7 @@ abstract class AbstractModuleUpdate
 
     /**
      * Test a module after installation
-     * 
+     *
      * @return string Error message or empty string if no error
      */
     public function testModuleInstallation(): string
@@ -346,10 +389,10 @@ abstract class AbstractModuleUpdate
 
     /**
      * Identify the module category from the configuration
-     * 
+     *
      * @param string $module_name
      * @param array  $params        config parameters
-     *  
+     *
      * @return string
      */
     public function identifyCategoryFromConfig(string $module_name, $params): string {
@@ -364,9 +407,9 @@ abstract class AbstractModuleUpdate
 
     /**
      * Retrieve a flash error message for a certain module
-     * 
+     *
      * @param string $module_name
-     *  
+     *
      * @return string Error message or empty string if no error
      */
     public static function pullFlashErrorMessage(string $module_name): string {
@@ -406,22 +449,24 @@ abstract class AbstractModuleUpdate
         }
 
         try {
-            $client = new Client([
-                'timeout' => 3,
-            ]);
-
-            $response = $client->get($module->customModuleLatestVersionUrl());
-
-            if ($response->getStatusCode() === StatusCodeInterface::STATUS_OK) {
-                $version = $response->getBody()->getContents();
-
-                // Does the response look like a version?
-                if (preg_match('/^\d+\.\d+\.\d+/', $version)) {
-                    return $version;
-                }
-            }
-        } catch (GuzzleException | RequestException $e) {
+            $response = PlatformService::getResponse($module->customModuleLatestVersionUrl());
+        }
+        catch (HostingPlatformCommunicationError $ex) {
             // Can't connect to the server?
+            $custom_module_manager = Functions::getFromContainer(CustomModuleManager::class);
+            $message = I18N::translate('Communication error with %s: %s', $module->customModuleLatestVersionUrl(), $ex->getMessage());
+            CustomModuleLog::addDebugLog($custom_module_manager, $message);
+
+            return '';
+        }
+
+        if ($response->getStatusCode() === StatusCodeInterface::STATUS_OK) {
+            $version = $response->getBody()->getContents();
+
+            // Does the response look like a version?
+            if (preg_match('/^\d+\.\d+\.\d+/', $version)) {
+                return $version;
+            }
         }
 
         return '';
@@ -463,5 +508,235 @@ abstract class AbstractModuleUpdate
     public function installClean(): bool {
 
         return $this->install_clean;
+    }
+
+    /**
+     * Whether the module can only be updated manually (and shall not be updated with CustomModuleManager)
+     *
+     * @return bool
+     */
+    public function updateManually(): bool {
+
+        return $this->update_manually;
+    }
+
+    /**
+     * Get the earliest version of the module, which is incompatible with the given webtrees version; i.e. has conflicts
+     *
+     * @param string $webtrees_version The version of webtrees, for which the module shall be compatible
+     *
+     * @return string  The earliest incompatible version of the module with conflicts; empty if not found
+     */
+    public function getEarliestIncompatibleVersion(string $webtrees_version = Webtrees::VERSION): string {
+
+        foreach ($this->conflicts as $version => $conflict_rule) {
+
+            if ($conflict_rule === '') {
+                continue;
+            }
+
+            try {
+                //If the webtrees version satisfies the conflict rule, then the module version is incompatible
+                if (CustomModuleManager::webtreesVersionSatifiesConflictRule($webtrees_version, $conflict_rule)) {
+
+                    //The list of conflicts is sorted by release time, so the first match is the earliest incompatible version
+                    return $version;
+                }
+            }
+            catch (InvalidArgumentException $ex) {
+                //Invalid webtrees version or conflict rule, e.g. empty string
+                //Ignore and continue with next version
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Get the latest version of the module, which is compatible with the given webtrees version; i.e. has no conflicts
+     *
+     * @param string $webtrees_version The version of webtrees, for which the module shall be compatible
+     *
+     * @return string  The latest compatible version of the module with no conflicts; empty if not found
+     */
+    public function getLatestCompatibleVersion(string $webtrees_version = Webtrees::VERSION): string {
+
+        //The list of conflicts is sorted by release time, so we iterate and take the last compatible version in the list
+        foreach ($this->conflicts as $version => $conflict_rule) {
+
+            //If there is no conflict rule, then the module version is compatible with all webtrees versions
+            if ($conflict_rule === '') {
+
+                return $version;
+            }
+
+            try {
+                //If the webtrees version does not satisfy the conflict rule, then the module version is compatible
+                if (!CustomModuleManager::webtreesVersionSatifiesConflictRule($webtrees_version, $conflict_rule)) {
+
+                    return $version;
+                }
+            }
+            catch (InvalidArgumentException $ex) {
+                //Invalid webtrees version or conflict rule, e.g. empty string
+                //Ignore and continue with next version
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Get the latest version of the module in the custom module list
+     * Version ordering is latest version first
+     *
+     * @param string $webtrees_version The version of webtrees, for which the module shall be compatible
+     *
+     * @return string  The latest version in the custom module list
+     */
+    public function getLatestVersionInCustomModuleList(string $webtrees_version = Webtrees::VERSION): string {
+
+        return array_key_first($this->conflicts) ?? '';
+    }
+
+    /**
+     * Get the compatiblilty information for a module, which contains a version and its compatibility level
+     *
+     * @param bool   $fetch_latest     Whether to fetch the latest version, e.g. from a Github repository
+     * @param string $webtrees_version The version of webtrees, for which the module shall be compatible
+     *
+     * @return array  An array with a version and its compatibility level
+     */
+    public function getCompatibleVersionInfo(bool $fetch_latest = false, string $webtrees_version = Webtrees::VERSION): array {
+
+        $module_name                   = $this->getModuleName();
+        $current_version               = $this->customModuleVersion();
+        $latest_version                = $this->customModuleLatestVersion($fetch_latest);
+        $latest_compatible_version     = $this->getLatestCompatibleVersion($webtrees_version);
+        $latest_version_in_module_list = $this->getLatestVersionInCustomModuleList($webtrees_version);
+        $earliest_incompatible_version = $this->getEarliestIncompatibleVersion($webtrees_version);
+
+        $version = '';
+        $compatiblilty = CustomModuleCompatibility::NOT_AVAILABLE;
+
+
+        // If no information is available at all, the latest version shall be taken
+        if ($latest_compatible_version === CustomModuleManager::VERSION_NOT_AVAILABLE && $latest_version === '') {
+            $version = CustomModuleManager::VERSION_LATEST;
+            $compatiblilty = CustomModuleCompatibility::POSSIBLY_COMPATIBLE;
+        }
+        // If the latest version in the module list is compatible, we assume that any latest version can be installed
+        elseif ($latest_compatible_version === $latest_version_in_module_list && $latest_compatible_version !== CustomModuleManager::VERSION_NOT_AVAILABLE) {
+
+            // If module does not provide its latest version, we take the latest compatible version
+            if ($latest_version === '') {
+                $version = $latest_compatible_version;
+                $compatiblilty = CustomModuleCompatibility::COMPATIBLE;
+            }
+            elseif (CustomModuleManager::versionCompare($module_name, $latest_version, $current_version) >= 0) {
+                $version = $latest_version;
+                $compatiblilty = CustomModuleCompatibility::COMPATIBLE;
+
+                // If the latest version is greater than in the module list, the latest version might be incompatible
+                if (CustomModuleManager::versionCompare($module_name, $latest_version, $latest_version_in_module_list) > 0) {
+                    $compatiblilty = CustomModuleCompatibility::PRESUMABLY_COMPATIBLE;
+                }
+            }
+        }
+        // Take the latest compatible version, if available
+        elseif (!in_array($latest_compatible_version, ['', CustomModuleManager::VERSION_NOT_AVAILABLE])) {
+            $version = $latest_compatible_version;
+            $compatiblilty = CustomModuleCompatibility::COMPATIBLE;
+        }
+        // If no compatible version is known and a newer version than in the module list is available
+        elseif ($latest_compatible_version === '') {
+            if (    CustomModuleManager::versionCompare($module_name, $latest_version, $latest_version_in_module_list) > 0
+                &&  CustomModuleManager::versionCompare($module_name, $latest_version, $current_version) > 0) {
+
+                $version = $latest_version;
+
+                // If the latest version is smaller than the earliest incompatible version
+                if (CustomModuleManager::versionCompare($module_name, $latest_version, $earliest_incompatible_version) < 0) {
+                    $compatiblilty = CustomModuleCompatibility::PRESUMABLY_COMPATIBLE;
+                }
+                else {
+                    $compatiblilty = CustomModuleCompatibility::POSSIBLY_COMPATIBLE;
+                }
+            }
+            else {
+                $compatiblilty = CustomModuleCompatibility::NOT_COMPATIBLE;
+            }
+        }
+        elseif ($latest_version_in_module_list === CustomModuleManager::VERSION_NOT_AVAILABLE) {
+            $version = $latest_version;
+            $compatiblilty = CustomModuleCompatibility::NOT_AVAILABLE;
+        }
+        else {
+            $version = $latest_version;
+            $compatiblilty = CustomModuleCompatibility::NOT_COMPATIBLE;
+        }
+
+        return [
+            'version'       => $version,
+            'compatiblilty' => $compatiblilty,
+        ];
+    }
+
+    /**
+     * Get the compatiblilty of a module version for a webtrees version
+     *
+     * @param string $webtrees_version    The version of webtrees, for which the module shall be compatible
+     * @param string $module_version      A version of the custom module; defaults to the current version
+     *
+     * @return CustomModuleCompatibility  The compatibility level
+     */
+    public function getCompatibility(string $module_version, string $webtrees_version = Webtrees::VERSION): CustomModuleCompatibility {
+
+        $module_name                   = $this->getModuleName();
+        $latest_compatible_version     = $this->getLatestCompatibleVersion($webtrees_version);
+        $latest_version_in_module_list = $this->getLatestVersionInCustomModuleList($webtrees_version);
+        $earliest_incompatible_version = $this->getEarliestIncompatibleVersion($webtrees_version);
+
+        // If the webtrees version is below a minimum webtrees version, we cannot provide any information
+        if (version_compare($webtrees_version, CustomModuleManager::VERSION_WEBTREES_MINIMUM) < 0) {
+            return CustomModuleCompatibility::NOT_AVAILABLE;
+        }
+
+        // If no compatibility information is available
+        if ($latest_compatible_version === CustomModuleManager::VERSION_NOT_AVAILABLE) {
+            return CustomModuleCompatibility::NOT_AVAILABLE;
+        }
+        // If the latest version in the module list is compatible, we assume that any greater version is compatible
+        elseif ($latest_compatible_version === $latest_version_in_module_list) {
+
+            if (CustomModuleManager::versionCompare($module_name, $module_version, $latest_version_in_module_list) === 0) {
+                return CustomModuleCompatibility::COMPATIBLE;
+            }
+            // If the latest version is greater than in the module list, the latest version compatibility is not known for sure
+            else if (CustomModuleManager::versionCompare($module_name, $module_version, $latest_version_in_module_list) > 0) {
+                return CustomModuleCompatibility::PRESUMABLY_COMPATIBLE;
+            }
+        }
+        // If version is lower than the earliest incompatible version
+        elseif (CustomModuleManager::versionCompare($module_name, $module_version, $earliest_incompatible_version) < 0) {
+            return CustomModuleCompatibility::COMPATIBLE;
+        }
+
+        return  CustomModuleCompatibility::NOT_COMPATIBLE;
+    }
+
+    /**
+     * Get the text of a file from the module repository
+     *
+     * @param string $repo       The module repository, e.g. GitHub 'Jefferson49/webtrees-common'
+     * @param string $branch     The tag or branch in the module repository
+     * @param string $path       The path in the module repository including the file name
+     *
+     * @throws HostingPlatformCommunicationError  In case of a communcation error with the hosting platform
+     *
+     * @return string
+     */
+    public function getTextFileContent(string $repo, string $branch, string $path): string {
+        return '';
     }
 }

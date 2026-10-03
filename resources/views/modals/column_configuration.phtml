@@ -11,9 +11,11 @@ use function view;
  * @var string $title
  * @var bool   $show_column_description
  * @var bool   $show_column_category
+ * @var bool   $show_column_date_added
  * @var bool   $show_column_update_service
  * @var bool   $show_column_downloads
- * @var bool   $show_column_enabled
+ * @var string $table_layout
+ * @var string $webtrees_version
  */
 
 ?>
@@ -30,7 +32,7 @@ use function view;
             <div class="col-sm-9 wt-page-options-value">
                 <?= view('components/checkbox', ['label' => MoreI18N::xlate('Show'), 'name' => CustomModuleManager::PREF_SHOW_COLUMN_DESCR, 'checked' => $show_column_description]) ?>
             </div>
-        </fieldset>        
+        </fieldset>
         <fieldset class="row">
             <legend class="col-sm-3 col-form-label wt-page-options-label">
                 <?= MoreI18N::xlate('Category') ?>
@@ -38,7 +40,15 @@ use function view;
             <div class="col-sm-9 wt-page-options-value">
                 <?= view('components/checkbox', ['label' => MoreI18N::xlate('Show'), 'name' => CustomModuleManager::PREF_SHOW_COLUMN_CATEGORY, 'checked' => $show_column_category]) ?>
             </div>
-        </fieldset>        
+        </fieldset>
+        <fieldset class="row">
+            <legend class="col-sm-3 col-form-label wt-page-options-label">
+                <?= I18N::translate('Date Added') ?>
+            </legend>
+            <div class="col-sm-9 wt-page-options-value">
+                <?= view('components/checkbox', ['label' => MoreI18N::xlate('Show'), 'name' => CustomModuleManager::PREF_SHOW_COLUMN_DATE_ADDED, 'checked' => $show_column_date_added]) ?>
+            </div>
+        </fieldset>
         <fieldset class="row">
             <legend class="col-sm-3 col-form-label wt-page-options-label">
                 <?= I18N::translate('Update Service') ?>
@@ -46,7 +56,7 @@ use function view;
             <div class="col-sm-9 wt-page-options-value">
                 <?= view('components/checkbox', ['label' => MoreI18N::xlate('Show'), 'name' => CustomModuleManager::PREF_SHOW_COLUMN_UPD_SERV, 'checked' => $show_column_update_service]) ?>
             </div>
-        </fieldset>        
+        </fieldset>
         <fieldset class="row">
             <legend class="col-sm-3 col-form-label wt-page-options-label">
                 <?= I18N::translate('Downloads') ?>
@@ -54,15 +64,37 @@ use function view;
             <div class="col-sm-9 wt-page-options-value">
                 <?= view('components/checkbox', ['label' => MoreI18N::xlate('Show'), 'name' => CustomModuleManager::PREF_SHOW_COLUMN_DOWNLOADS, 'checked' => $show_column_downloads]) ?>
             </div>
-        </fieldset>        
+        </fieldset>
         <fieldset class="row">
-            <legend class="col-sm-3 col-form-label wt-page-options-label">
-                <?= MoreI18N::xlate('Enabled') ?>
-            </legend>
+            <label class="col-sm-3 col-form-label wt-page-options-label" for="webtrees_version">
+                <?= I18N::translate('Compatiblity with webtrees version') ?>
+            </label>
             <div class="col-sm-9 wt-page-options-value">
-                <?= view('components/checkbox', ['label' => MoreI18N::xlate('Show'), 'name' => CustomModuleManager::PREF_SHOW_COLUMN_ENABLED, 'checked' => $show_column_enabled]) ?>
+                <input class="form-control" id="webtrees_version" name="webtrees_version" type="text" value="<?= e($webtrees_version) ?>">
+                <div class="form-text">
+                    <?= I18N::translate('If empty, column will not be shown.'); ?>
+                    <br>
+                    <?= I18N::translate('Compatibility information is only available for webtrees versions >= %s.', CustomModuleManager::VERSION_WEBTREES_MINIMUM); ?>
+                </div>
             </div>
-        </fieldset>        
+        </fieldset>
+        <div class="row mb-3"><?= view('icons/spacer') ?></div>
+        <fieldset class="mb-3">
+            <div class="row">
+                <legend class="col-form-label col-sm-3">
+                    <?= I18N::translate('Table layout') ?>
+                </legend>
+                <div class="col-sm-9">
+                    <?= view('components/radios', ['name' => 'table_layout', 'selected' => $table_layout,
+                        'options' => [
+                            CustomModuleManager::TABLE_LAYOUT_TABLE       => I18N::translate('Table'),
+                            CustomModuleManager::TABLE_LAYOUT_STICKY_HEAD => I18N::translate('Table with fixed header row'),
+                            CustomModuleManager::TABLE_LAYOUT_RESPONSIVE  => I18N::translate('Responsive table (for small screens)'),
+                        ]
+                    ]) ?>
+                </div>
+            </div>
+        </fieldset>
     </div>
 
     <?= view('modals/footer-save-cancel') ?>

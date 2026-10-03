@@ -29,42 +29,34 @@
 
 declare(strict_types=1);
 
-namespace Jefferson49\Webtrees\Module\CustomModuleManager\ModuleUpdates;
+namespace Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers;
 
-use Jefferson49\Webtrees\Helpers\GithubService;
+use Fisharebest\Webtrees\Http\ViewResponseTrait;
+use Fisharebest\Webtrees\I18N;
 use Jefferson49\Webtrees\Module\CustomModuleManager\CustomModuleManager;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\RequestHandlerInterface;
 
 
 /**
- * Update API for a custom module, which is hosted in a Github repository
+ * Show Vesta information before installing/upgrading/deleting Vesta custom modules
  */
-class GithubModuleUpdate extends PlatformModuleUpdate implements CustomModuleUpdateInterface
+class VestaInformationModal implements RequestHandlerInterface
 {
-    const string NAME = 'GitHub';
-    const string URL  = 'https://github.com/';
+    use ViewResponseTrait;
 
     /**
-     * @param string $module_name  The custom module name
-     * @param array  $params       The configuration parameters of the update service
+     * @param ServerRequestInterface $request
      *
-     * @return void
+     * @return ResponseInterface
      */
-    public function __construct(string $module_name, array $params) {
+    public function handle(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->layout = 'layouts/ajax';
 
-        $this->platform_name    = self::NAME;
-        $this->platform_url     = self::URL;
-        $this->platform_service = GithubService::class;
-
-        parent::__construct($module_name, $params);
-    }
-
-    /**
-     * Get the API token
-     *
-     * @return string
-     */
-    public function getApiToken(): string {
-
-        return $this->custom_module_manager->getPreference(CustomModuleManager::PREF_GITHUB_API_TOKEN, '');
+        return $this->viewResponse(CustomModuleManager::viewsNamespace() . '::modals/vesta_information', [
+                'title'           => I18N::translate('Vesta Module Information'),
+        ]);
     }
 }

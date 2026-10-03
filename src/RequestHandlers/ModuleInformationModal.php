@@ -2,11 +2,11 @@
 
 /**
  * webtrees: online genealogy
- * Copyright (C) 2025 webtrees development team
+ * Copyright (C) 2026 webtrees development team
  *                    <http://webtrees.net>
  *
  * CustomModuleManager (webtrees custom module):
- * Copyright (C) 2025 Markus Hemprich
+ * Copyright (C) 2026 Markus Hemprich
  *                    <http://www.familienforschung-hemprich.de>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -20,11 +20,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  *
- * 
+ *
  * CustomModuleManager
  *
  * A weebtrees(https://webtrees.net) 2.2 custom module to manage custom modules
- * 
+ *
  */
 
 declare(strict_types=1);
@@ -36,6 +36,7 @@ use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Services\ModuleService;
 use Fisharebest\Webtrees\Validator;
 use Jefferson49\Webtrees\Module\CustomModuleManager\CustomModuleManager;
+use Jefferson49\Webtrees\Module\CustomModuleManager\Enums\CustomModuleStatus;
 use Jefferson49\Webtrees\Module\CustomModuleManager\Factories\CustomModuleUpdateFactory;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -62,11 +63,10 @@ class ModuleInformationModal implements RequestHandlerInterface
         $show_default_title         = Validator::queryParams($request)->boolean('show_default_title', false);
         $module_description         = Validator::queryParams($request)->string('module_description', '');
         $show_default_description   = Validator::queryParams($request)->boolean('show_default_description', false);
-        $module_status              = Validator::queryParams($request)->string('module_status', '');
+        $module_status              = Validator::queryParams($request)->integer('module_status', CustomModuleStatus::NOT_INSTALLED->value);
         $is_theme                   = Validator::queryParams($request)->boolean('is_theme', false);
         $category                   = Validator::queryParams($request)->string('category', '');
         $current_version            = Validator::queryParams($request)->string('current_version', '');
-        $latest_version             = Validator::queryParams($request)->string('latest_version', '');
         $installation_folder        = Validator::queryParams($request)->string('installation_folder', '');
         $documentation_url          = Validator::queryParams($request)->string('documentation_url', '');
 
@@ -75,7 +75,7 @@ class ModuleInformationModal implements RequestHandlerInterface
         $module_update_service = CustomModuleUpdateFactory::make($module_name);
 
         $this->layout = 'layouts/ajax';
-        
+
         return $this->viewResponse(CustomModuleManager::viewsNamespace() . '::modals/module_information', [
                 'title'                      => I18N::translate('Module Information'),
                 'module_name'                => $module_name,
@@ -86,11 +86,10 @@ class ModuleInformationModal implements RequestHandlerInterface
                 'show_default_title'         => $show_default_title,
                 'module_description'         => $module_description,
                 'show_default_description'   => $show_default_description,
-                'module_status'              => $module_status,
+                'module_status'              => CustomModuleStatus::from($module_status),
                 'is_theme'                   => $is_theme,
                 'category'                   => $category,
                 'current_version'            => $current_version,
-                'latest_version'             => $latest_version,
                 'installation_folder'        => $installation_folder,
                 'documentation_url'          => $documentation_url,
         ]);

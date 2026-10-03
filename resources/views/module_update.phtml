@@ -4,15 +4,20 @@ declare(strict_types=1);
 
 namespace Jefferson49\Webtrees\Module\CustomModuleManager;
 
-use Fisharebest\Webtrees\Http\RequestHandlers\ControlPanel;
 use Fisharebest\Webtrees\I18N;
+use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\ModuleService;
 use Fisharebest\Webtrees\Session;
+use Fisharebest\Webtrees\View;
+use Fisharebest\Webtrees\Webtrees;
 use Illuminate\Support\Collection;
 use Jefferson49\Webtrees\Internationalization\MoreI18N;
 use Jefferson49\Webtrees\Module\CustomModuleManager\CustomModuleManager;
+use Jefferson49\Webtrees\Module\CustomModuleManager\Enums\CustomModuleCompatibility;
+use Jefferson49\Webtrees\Module\CustomModuleManager\Enums\CustomModuleStatus;
 use Jefferson49\Webtrees\Module\CustomModuleManager\Factories\CustomModuleUpdateFactory;
 use Jefferson49\Webtrees\Module\CustomModuleManager\ModuleUpdates\AbstractModuleUpdate;
+use Jefferson49\Webtrees\Module\CustomModuleManager\ModuleUpdates\CodebergModuleUpdate;
 use Jefferson49\Webtrees\Module\CustomModuleManager\ModuleUpdates\GithubModuleUpdate;
 use Jefferson49\Webtrees\Module\CustomModuleManager\ModuleUpdates\VestaModuleUpdate;
 use Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers\CustomModuleUpdatePage;
@@ -22,6 +27,7 @@ use Jefferson49\Webtrees\Module\CustomModuleManager\Configuration\ModuleUpdateSe
 use Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers\ColumnConfigurationModal;
 use Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers\CustomModuleActivateAction;
 use Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers\ReleaseNotesModal;
+use Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers\VestaInformationModal;
 
 
 /**
@@ -35,45 +41,98 @@ use Jefferson49\Webtrees\Module\CustomModuleManager\RequestHandlers\ReleaseNotes
  * @var string              $modules_to_show
  * @var bool                $show_column_description
  * @var bool                $show_column_category
+ * @var bool                $show_column_date_added
+ * @var bool                $show_column_compatibility
  * @var bool                $show_column_update_service
  * @var bool                $show_column_downloads
- * @var bool                $show_column_enabled
+ * @var string              $table_layout
+ * @var bool                $vesta_confirmed
+ * @var string              $webtrees_version
  */
 
+// ControlPanel class
+if (version_compare(Webtrees::VERSION, '2.3', '>=')) {
+    $control_panel = \Fisharebest\Webtrees\Http\Controllers\ControlPanel::class;
+} else {
+    $control_panel = \Fisharebest\Webtrees\Http\RequestHandlers\ControlPanel::class;
+}
+
+// Class for module update table
+if (version_compare(Webtrees::VERSION, '2.3', '>=')) {
+    $data_tables_class = "wt-datatables d-none";
+} else {
+    $data_tables_class = "datatables";
+}
+
+// Configuration of module update table
+$sort_column = 7;
+
+// Title
 $data_colums[] = ['type' => 'html'];
 
+// Description
 if ($show_column_description) {
     $data_colums[] = ['type' => 'html', 'sortable' => false];
+    $sort_column++;
 }
 
+// Folder
 $data_colums[] = null;
 
+// Category
 if ($show_column_category) {
     $data_colums[] = null;
+    $sort_column++;
 }
 
-$data_colums[] = ['sortable' => false];
+// Date added
+if ($show_column_date_added) {
+    $data_colums[] = ['type' => 'html'];
+    $sort_column++;
+}
+
+// Current version
 $data_colums[] = ['sortable' => false];
 
+// Latest version
+$data_colums[] = ['sortable' => false];
+
+// Compatibility
+if ($show_column_compatibility) {
+    $data_colums[] =['type' => 'html', 'searchable' => false];
+    $sort_column++;
+}
+
+// Update Service
 if ($show_column_update_service) {
     $data_colums[] = null;
+    $sort_column++;
 }
 
+// Downloads
 if ($show_column_downloads) {
     $data_colums[] =['type' => 'num', 'searchable' => false];
+    $sort_column++;
 }
 
-if ($show_column_enabled) {
-    $data_colums[] =['type' => 'html', 'searchable' => false];
-}
+// Enabled
+$data_colums[] =['type' => 'html', 'searchable' => false];
 
+// Install
 $data_colums[] = ['type' => 'html', 'searchable' => false];
+
+// Delete
 $data_colums[] = ['type' => 'html', 'searchable' => false];
+
+
+// Initial sorting of table by install column
+// This value is only reset in the browser after browser data is deleted in browser settings
+$order = [[$sort_column, 'desc']];
 
 ?>
 
 <?= view('components/breadcrumbs', ['links' => [
-    route(ControlPanel::class) => MoreI18N::xlate('Control panel'),
+    route($control_panel) => MoreI18N::xlate('Control panel'),
     $custom_module_manager->getConfigLink() => $custom_module_manager->title(),
     $title
     ]]) ?>
@@ -91,279 +150,465 @@ $data_colums[] = ['type' => 'html', 'searchable' => false];
 
 <?= I18N::translate('Typically, custom modules versions are updated every 24 hours. You can check if later versions or download counts are available.') ?>
 <?= view('icons/spacer') ?>
-<a href="<?= e(route(CustomModuleUpdatePage::class, [
-        'fetch_latest' => true,
-    ])) ?>" type="submit" class="btn btn-primary">
-    <?= MoreI18N::xlate('check now') ?>
-</a>
-<a href="#" data-bs-toggle="modal" data-bs-backdrop="static" data-bs-target="#wt-ajax-modal" data-wt-href="<?= e(route(ColumnConfigurationModal::class, [
-        'show_column_description'    => $show_column_description,
-        'show_column_category'       => $show_column_category,
-        'show_column_update_service' => $show_column_update_service,
-        'show_column_downloads'      => $show_column_downloads,
-        'show_column_enabled'        => $show_column_enabled,
-    ])) ?>" type="submit" class="btn btn-secondary">
-    <?= I18N::translate('Configure columns') ?>
-</a>
 
 <form method="post" action="<?= e(route(CustomModuleActivateAction::class)) ?>">
-    <table
-        id="wt-datatables-custom-module-manager-updates"
-        class="table table-bordered table-hover table-sm table-module-administration datatables"
-        <?= view('lists/datatables-attributes') ?>
-        data-info="false"
-        data-paging="false"
-        data-filter="true"
-        data-layout='{"topEnd":"search"}'
-        data-columns="<?= e(json_encode($data_colums, JSON_THROW_ON_ERROR)) ?>"
-    >
-        <caption class="visually-hidden">
-            <?= $caption ?? I18N::translate('Module Updates') ?>
-        </caption>
-
-        <thead>
-            <tr>
-                <th><?= MoreI18N::xlate('Title') ?></th>
-                <?php if ($show_column_description) : ?>
-                    <th><?= MoreI18N::xlate('Description') ?></th>
-                <?php endif ?>                    
-                <th><?= I18N::translate('Folder (within modules_v4)') ?></th>
-                <?php if ($show_column_category) : ?>
-                    <th><?= MoreI18N::xlate('Category') ?></th>
-                <?php endif ?>                    
-                <th><?= I18N::translate('Current Version') ?></th>
-                <th><?= I18N::translate('Latest Version') ?></th>
-                <?php if ($show_column_update_service) : ?>
-                    <th><?= I18N::translate('Update Service') ?></th>
-                <?php endif ?>                    
-                <?php if ($show_column_downloads) : ?>
-                    <th><?= I18N::translate('Down-loads') ?></th>
-                <?php endif ?>                    
-                <?php if ($show_column_enabled) : ?>
-                    <th><?= MoreI18N::xlate('Enabled') ?></th>
-                <?php endif ?>                    
-                <th><?= I18N::translate('Install') ?></th>
-                <th><?= MoreI18N::xlate('Delete') ?></th>
-            </tr>
-        </thead>
-
-        <tbody>
-            <?php foreach ($module_names as $module_name => $standard_module_name) : ?>
-                <?php $module = $module_service->findByName($module_name, true) ?>
-                <?php if ($module === null) : ?>
-                    <?php if ($modules_to_show === CustomModuleManager::PREF_SHOW_INSTALLED) : ?><?php continue ?><?php endif ?>	
-                    <?php $module_status = I18N::translate('Not installed') ?>
-                <?php else : ?>
-                    <?php if ($modules_to_show === CustomModuleManager::PREF_SHOW_NOT_INSTALLED) : ?><?php continue ?><?php endif ?>						
-                    <?php if ($module->isEnabled()) : ?>
-                        <?php $module_status = '1' ?>
-                    <?php else : ?>
-                        <?php $module_status = '0' ?>
-                    <?php endif ?>						
-                <?php endif ?>						
-                <?php $current_language = Session::get('language', '') ?>
-                <?php $update_service_available = ModuleUpdateServiceConfiguration::getUpdateServiceName($module_name) !== '' ?>
-                <?php $module_update_service = CustomModuleUpdateFactory::make($module_name) ?>
-                <?php if ($update_service_available) : ?>
-                    <?php $module_update_service_name = $module_update_service->name() ?>
-                    <?php $module_title = $module_update_service->title($current_language) ?>
-                    <?php /** @var GithubModuleUpdate $module_update_service To avoid IDE warnings */ ?>
-                    <?php $default_module_title = $module_update_service->title() ?>
-                    <?php $module_description = $module_update_service->description($current_language) ?>
-                    <?php $default_module_description = $module_update_service->description() ?>
-                    <?php $is_theme = $module_update_service->moduleIsTheme() ?>
-                    <?php $category = $module_update_service->getCategory() ?>
-                    <?php $current_version = $module_update_service->customModuleVersion() ?>
-                    <?php if ($module !== null) : ?>
-                        <?php $latest_version = $module_update_service->customModuleLatestVersion($fetch_latest) ?>
-                    <?php else : ?>
-                        <?php $latest_version = $fetch_latest ? $module_update_service->customModuleLatestVersion($fetch_latest) : '' ?>
-                        <?php $later_version_available = false ?>
-                    <?php endif ?>
-                    <?php $documentation_url = $module_update_service->documentationUrl() ?>
-                <?php else : ?>
-                    <?php $module_update_service_name = I18N::translate('not available') ?>
-                    <?php $module_title = $module->title() ?>
-                    <?php $module_description = $module->description() ?>
-                    <?php $default_module_title = $module_title ?>
-                    <?php $default_module_description = $module_description ?>
-                    <?php $is_theme = $themes->contains($module) ?>
-                    <?php $category = $is_theme ? ModuleUpdateServiceConfiguration::CATEGORY_THEME : '' ?>
-                    <?php /** @var CustomModuleManager $module To avoid IDE warnings */ ?>
-                    <?php $current_version = $module->customModuleVersion() ?>
-                    <?php $latest_version = $module->customModuleLatestVersion() ?>
-                    <?php $documentation_url = '' ?>
-                <?php endif ?>
-                <?php if ($module !== null) : ?>
-                    <?php $current_version = $current_version !== '' ? $current_version : I18N::translate('not available') ?>
-                    <?php $latest_version = $latest_version !== '' ? $latest_version : I18N::translate('not available') ?>
-                <?php endif ?>
-                <?php if (CustomModuleManager::versionCompare($module_name, $latest_version, $current_version) > 0) : ?>
-                    <?php $later_version_available = true ?>
-                <?php else : ?>
-                    <?php $later_version_available = false ?>
-                <?php endif ?>
-                <?php $installation_folder = AbstractModuleUpdate::getInstallationFolderFromModuleName($module_name) ?>
-                <?php $show_default_description = ($module_description === '' OR $module_description === $default_module_description) && strpos($current_language, 'en', 0) === false ?>
-                <?php if ($module_title === '') : ?>
-                    <?php $module_title = $default_module_title ?>
-                <?php endif ?>				
-                <?php if ($show_default_description) : ?>
-                    <?php $module_description = $default_module_description ?>
-                <?php endif ?>
-                <?php $module_title_sort = str_replace(["\u26b6 ", "\u210d ", "\u210d&\u210dwt ", '⚶ ', 'ℍ ', 'ℍ&ℍwt ', ], '', $module_title) ?>
-                <?php $short_module_name = substr($module_name, 0, 25) . '_' ?>
-                <?php $ignore_version = $custom_module_manager->getPreference($short_module_name . CustomModuleManager::PREF_IGNORE_VERSION, '') ?>
-
-                <tr>
-                    <!-- Title -->
-                    <td data-sort="<?= e($module_title_sort) ?>">
-                    <a href="#" data-bs-toggle="modal" data-bs-backdrop="static" data-bs-target="#wt-ajax-modal" data-wt-href="<?= e(route(ModuleInformationModal::class, [
-                            'module_name'                => $module_name,
-                            'module'                     => $module,
-                            'module_update_service'      => $module_update_service,
-                            'module_update_service_name' => $module_update_service_name,
-                            'module_title'               => $module_title,
-                            'module_description'         => $module_description,
-                            'show_default_description'   => $show_default_description,
-                            'module_status'              => $module_status,
-                            'is_theme'                   => $is_theme,
-                            'category'                   => $category,
-                            'current_version'            => $current_version,
-                            'latest_version'             => $latest_version,
-                            'installation_folder'        => $installation_folder,
-                            'documentation_url'          => $documentation_url,
-                        ])) ?>">
-                        <?= e($module_title) ?>
-                    </a>
-                    </td>
-
-                    <!-- Description -->
-                    <?php if ($show_column_description) : ?>
-                        <td>
-                            <?php if ($show_default_description) : ?>
-                                <?= CustomModuleManager::DEFAULT_LANGUAGE_PREFIX ?><br>
-                            <?php endif ?>
-                            <?= substr($module_description, 0, 255) ?>
-                        </td>
-                    <?php endif ?>                          
-
-                    <!-- Folder -->
-                    <td data-sort="<?= e($installation_folder) ?>">
-                        <?= e($installation_folder) ?>
-                    </td>
-
-                    <!--Category -->
-                    <?php if ($show_column_category) : ?>
-                        <td data-sort="<?= e($category) ?>">
-                            <?= e($category) ?>
-                        </td>
-                    <?php endif ?>                          
-
-                    <!-- Current version -->
-                    <td data-sort="<?= e(CustomModuleManager::normalizeVersion($module_name, $current_version)) ?>">
-                        <?= e(CustomModuleManager::normalizeVersion($module_name, $current_version)) ?>
-                    </td>
-
-                    <!-- Latest version -->
-                    <td data-sort="<?= e(CustomModuleManager::normalizeVersion($module_name, $latest_version)) ?>">
-                        <?php if (      $later_version_available && $current_version !== '' 
-                                    &&  (       ($module_update_service_name === GithubModuleUpdate::NAME && $module_update_service->providesReleasesInRepository())
-                                            OR  ($module_update_service_name === VestaModuleUpdate::NAME))
-                                ) : ?>
-                            <a href="#" data-bs-toggle="modal" data-bs-backdrop="static" data-bs-target="#wt-ajax-modal" data-wt-href="<?= e(route(ReleaseNotesModal::class, [
-                                    'module_name'    => $module_name,
-                                    'module_title'   => $module_title,
-                                    'latest_version' => $latest_version,
-                                    'ignore_version' => $ignore_version,
-                                ])) ?>" type="submit" class="btn btn-<?= $latest_version === $ignore_version ? 'secondary' : 'primary' ?>">
-                                <?= e(CustomModuleManager::normalizeVersion($module_name, $latest_version)) ?>
-                            </a>
-                        <?php else : ?>
-                            <?= e(CustomModuleManager::normalizeVersion($module_name, $latest_version)) ?>
-                        <?php endif ?>						
-                    </td>
-
-                    <!--Update Service -->
-                    <?php if ($show_column_update_service) : ?>
-                        <td data-sort="<?= $module_update_service_name ?>">
-                            <?= $module_update_service_name ?>
-                        </td>
-                    <?php endif ?>                          
-
-                    <!--Downloads -->
-                    <?php if ($show_column_downloads) : ?>
-                        <?php $download_count = ($module_update_service instanceof GithubModuleUpdate) ? $module_update_service->getDownloadCount() : -1 ?>
-                        <td data-sort="<?= $download_count ?>">
-                            <?= $download_count > 0 ? number_format($download_count) : I18N::translate('N/A') ?>
-                        </td>
-                    <?php endif ?>                          
-
-                    <!-- Enabled -->
-                    <?php if ($show_column_enabled) : ?>
-                        <td data-sort="<?= $module_status ?>">
-                            <?php if ($module !== null) : ?>
-                                <?= view('components/checkbox', ['label' => '', 'name' => 'status-' . $module->name(), 'checked' => $module->isEnabled()]) ?>
-                            <?php else : ?>
-                                <?= $module_status ?>
-                            <?php endif ?>
-                        </td>
-                    <?php endif ?>                          
-
-                    <!--Install -->
-                    <?php $action = '' ?>
-                    <?php $action_label = '' ?>
-                    <?php if ($module !== null && $later_version_available && !($latest_version === $ignore_version)) : ?>
-                        <?php $action = CustomModuleManager::ACTION_UPDATE ?>
-                        <?php $action_label = I18N::translate('Update module') ?>
-                    <?php elseif ($module_status === I18N::translate('Not installed')) : ?>
-                        <?php $action = CustomModuleManager::ACTION_INSTALL ?>
-                        <?php $action_label = I18N::translate('Install module') ?>
-                    <?php endif ?>
-                    <td data-sort="<?= $action_label ?>">
-                        <?php if ($action_label !== '' && $update_service_available) : ?>
-                            <a href="#" data-bs-toggle="modal" data-bs-backdrop="static" data-bs-target="#wt-ajax-modal" data-wt-href="<?= e(route(ModuleUpgradeWizardPage::class, [
-                                    'module_name'     => $module_name,
-                                    'current_version' => $current_version,
-                                    'latest_version'  => $latest_version,
-                                    'action'          => $action,
-                                ])) ?>" type="submit" class="btn btn-<?= $action === CustomModuleManager::ACTION_UPDATE ? 'primary' : 'secondary' ?>">
-                                <?= $action_label ?>
-                            </a>
-                        <?php endif ?>						
-                    </td>
-
-                    <!--Delete -->
-                    <?php $label = '' ?>
-                    <?php if ($module !== null) : ?>
-                        <?php $label = I18N::translate('Delete module') ?>
-                    <?php endif ?>						
-                    <td data-sort="<?= $label ?>">
-                        <?php if ($module !== null) : ?>
-                            <a href="#" data-bs-toggle="modal" data-bs-backdrop="static" data-bs-target="#wt-ajax-modal" data-wt-href="<?= e(route(ModuleUpgradeWizardPage::class, [
-                                    'module_name'     => $module_name,
-                                    'action'          => CustomModuleManager::ACTION_DELETE,
-                                ])) ?>" type="submit" class="btn btn-secondary">
-                                <?= $label ?>
-                            </a>
-                        <?php endif ?>						
-                    </td>
-                </tr>
-            <?php endforeach ?>
-        </tbody>
+    <table class="table-custom-module-manager-fixed-top" width="100%">
+        <tr>
+            <td>
+                <a href="<?= e(route(CustomModuleUpdatePage::class, [
+                        'fetch_latest' => true,
+                    ])) ?>" type="submit" class="btn btn-primary">
+                    <?= MoreI18N::xlate('check now') ?>
+                </a>
+                <a href="#" data-bs-toggle="modal" data-bs-backdrop="static" data-bs-target="#wt-ajax-modal" data-wt-href="<?= e(route(ColumnConfigurationModal::class)) ?>" type="submit" class="btn btn-secondary">
+                    <?= I18N::translate('Configure columns and table layout') ?>
+                </a>
+                <button class="btn btn-primary" type="submit">
+                    <?= view('icons/save') ?>
+                    <?= MoreI18N::xlate('save') ?>
+                </button>
+            </td>
+            <td>
+                <div id="module-filter-bar" class="sticky-top">
+                    <!-- Search box will be moved here -->
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td>
+                <?= I18N::translate('Press the save button to enable/disable modules according to the checkbox in the "enabled" column.') ?>
+            </td>
+        </tr>
     </table>
+    <?php if ($table_layout === CustomModuleManager::TABLE_LAYOUT_RESPONSIVE) : ?>
+        <div class="table-responsive">
+    <?php elseif ($table_layout === CustomModuleManager::TABLE_LAYOUT_STICKY_HEAD) : ?>
+        <div style="max-height: 75vh; overflow-y: auto;">
+    <?php else : ?>
+        <div>
+    <?php endif ?>
+        <table
+            id="wt-datatables-custom-module-manager-updates"
+            class="table table-bordered table-hover table-sm table-module-administration table-custom-module-manager-updates <?= $data_tables_class ?>"
+            <?= view('lists/datatables-attributes') ?>
+            data-info="false"
+            data-paging="false"
+            data-filter="true"
+            data-layout='{"topEnd":"search"}'
+            data-columns="<?= e(json_encode($data_colums, JSON_THROW_ON_ERROR)) ?>"
+            data-order="<?= e(json_encode($order, JSON_THROW_ON_ERROR)) ?>"
+        >
+            <caption class="visually-hidden">
+                <?= I18N::translate('Module Updates') ?>
+            </caption>
 
-    <div class="row mb-3"><?= view('icons/spacer') ?></div>  
+            <thead <?= $table_layout === CustomModuleManager::TABLE_LAYOUT_STICKY_HEAD ? 'class="sticky-top"' : '' ?>>
+                <tr>
+                    <th><?= MoreI18N::xlate('Title') ?></th>
+                    <?php if ($show_column_description) : ?>
+                        <th><?= MoreI18N::xlate('Description') ?></th>
+                    <?php endif ?>
+                    <th><?= I18N::translate('Folder (within modules_v4)') ?></th>
+                    <?php if ($show_column_category) : ?>
+                        <th><?= MoreI18N::xlate('Category') ?></th>
+                    <?php endif ?>
+                    <?php if ($show_column_date_added) : ?>
+                        <th><?= I18N::translate('Date Added') ?></th>
+                    <?php endif ?>
+                    <th><?= I18N::translate('Current Version') ?></th>
+                    <th><?= I18N::translate('Latest Version') ?></th>
+                    <?php if ($show_column_compatibility) : ?>
+                        <th><?= I18N::translate('Compatibility with webtrees') . ' ' . $webtrees_version ?></th>
+                    <?php endif ?>
+                    <?php if ($show_column_update_service) : ?>
+                        <th><?= I18N::translate('Update Service') ?></th>
+                    <?php endif ?>
+                    <?php if ($show_column_downloads) : ?>
+                        <th><?= I18N::translate('Down-loads') ?></th>
+                    <?php endif ?>
+                    <th><?= MoreI18N::xlate('Enabled') ?></th>
+                    <th><?= I18N::translate('Install') ?></th>
+                    <th><?= MoreI18N::xlate('Delete') ?></th>
+                </tr>
+            </thead>
 
-    <button class="btn btn-primary" type="submit">
-        <?= view('icons/save') ?>
-        <?= MoreI18N::xlate('save') ?>
-    </button>
+            <tbody>
+                <?php foreach ($module_names as $module_name => $standard_module_name) : ?>
+                    <?php $module = $module_service->findByName($module_name, true) ?>
+                    <?php if ($module === null) : ?>
+                        <?php if ($modules_to_show === CustomModuleManager::PREF_SHOW_INSTALLED) : ?><?php continue ?><?php endif ?>
+                        <?php $module_status = CustomModuleStatus::NOT_INSTALLED ?>
+                    <?php else : ?>
+                        <?php if ($modules_to_show === CustomModuleManager::PREF_SHOW_NOT_INSTALLED) : ?><?php continue ?><?php endif ?>
+                        <?php if ($module->isEnabled()) : ?>
+                            <?php $module_status = CustomModuleStatus::ENABLED ?>
+                        <?php else : ?>
+                            <?php $module_status = CustomModuleStatus::DISABLED ?>
+                        <?php endif ?>
+                    <?php endif ?>
+                    <?php $current_language = Session::get('language', '') ?>
+                    <?php $update_service_available = ModuleUpdateServiceConfiguration::getUpdateServiceName($module_name) !== '' ?>
+                    <?php $module_update_service = CustomModuleUpdateFactory::make($module_name) ?>
+                    <?php if ($update_service_available) : ?>
+                        <?php $module_update_service_name = $module_update_service->name() ?>
+                        <?php $module_title = $module_update_service->title($current_language) ?>
+                        <?php /** @var GithubModuleUpdate $module_update_service To avoid IDE warnings */ ?>
+                        <?php $default_module_title = $module_update_service->title() ?>
+                        <?php $module_description = $module_update_service->description($current_language) ?>
+                        <?php $default_module_description = $module_update_service->description() ?>
+                        <?php $is_theme = $module_update_service->moduleIsTheme() ?>
+                        <?php $category = $module_update_service->getCategory() ?>
+                        <?php $date_added = $module_update_service->getDateAdded() ?>
+                        <?php $current_version = $module_update_service->customModuleVersion() ?>
+                        <?php $documentation_url = $module_update_service->documentationUrl() ?>
+                        <?php $compatible_version_info = $module_update_service->getCompatibleVersionInfo($fetch_latest) ?>
+                        <?php $latest_compatible_version = $compatible_version_info['version'] ?>
+                        <?php $compatiblilty = $compatible_version_info['compatiblilty'] ?>
+                    <?php else : ?>
+                        <?php $module_update_service_name = I18N::translate('Not available') ?>
+                        <?php $module_title = $module->title() ?>
+                        <?php $module_description = $module->description() ?>
+                        <?php $default_module_title = $module_title ?>
+                        <?php $default_module_description = $module_description ?>
+                        <?php $is_theme = $themes->contains($module) ?>
+                        <?php $category = $is_theme ? ModuleUpdateServiceConfiguration::CATEGORY_THEME : '' ?>
+                        <?php $date_added = '' ?>
+                        <?php /** @var CustomModuleManager $module To avoid IDE warnings */ ?>
+                        <?php $current_version = $module->customModuleVersion() ?>
+                        <?php $documentation_url = '' ?>
+                        <?php if ($module !== null) : ?>
+                            <?php $latest_compatible_version = $module->customModuleLatestVersion() ?>
+                        <?php else : ?>
+                            <?php $latest_compatible_version = CustomModuleManager::VERSION_NOT_AVAILABLE ?>
+                        <?php endif ?>
+                        <?php $compatiblilty = CustomModuleCompatibility::NOT_COMPATIBLE ?>
+                    <?php endif ?>
 
-    <br>
-    <?= I18N::translate('Press the save button to enable/disable modules according to the checkbox in the "enabled" column.') ?>
+                    <?php $installation_folder = AbstractModuleUpdate::getInstallationFolderFromModuleName($module_name) ?>
+                    <?php $show_default_description = ($module_description === '' OR $module_description === $default_module_description) && strpos($current_language, 'en', 0) === false ?>
+                    <?php if ($module_title === '') : ?>
+                        <?php $module_title = $default_module_title ?>
+                    <?php endif ?>
+                    <?php if ($show_default_description) : ?>
+                        <?php $module_description = $default_module_description ?>
+                    <?php endif ?>
+                    <?php $module_title_sort = str_replace(["\u26b6 ", "\u210d ", "\u210d&\u210dwt ", '⚶ ', 'ℍ ', 'ℍ&ℍwt ', ], '', $module_title) ?>
+                    <?php $short_module_name = substr($module_name, 0, 25) . '_' ?>
+                    <?php $ignore_version = $custom_module_manager->getPreference($short_module_name . CustomModuleManager::PREF_IGNORE_VERSION, '') ?>
 
+                    <tr>
+                        <!-- Title -->
+                        <td data-sort="<?= e($module_title_sort) ?>">
+                        <a href="#" data-bs-toggle="modal" data-bs-backdrop="static" data-bs-target="#wt-ajax-modal" data-wt-href="<?= e(route(ModuleInformationModal::class, [
+                                'module_name'                => $module_name,
+                                'module_update_service_name' => $module_update_service_name,
+                                'module_title'               => $module_title,
+                                'module_description'         => $module_description,
+                                'date_added'                 => $date_added,
+                                'show_default_description'   => $show_default_description,
+                                'module_status'              => $module_status->value,
+                                'is_theme'                   => $is_theme,
+                                'category'                   => $category,
+                                'current_version'            => $current_version,
+                                'installation_folder'        => $installation_folder,
+                                'documentation_url'          => $documentation_url,
+                            ])) ?>">
+                            <?= e($module_title) ?>
+                        </a>
+                        </td>
+
+                        <!-- Description -->
+                        <?php if ($show_column_description) : ?>
+                            <td>
+                                <?php if ($show_default_description) : ?>
+                                    <?= CustomModuleManager::DEFAULT_LANGUAGE_PREFIX ?><br>
+                                <?php endif ?>
+                                <?= substr($module_description, 0, 255) ?>
+                            </td>
+                        <?php endif ?>
+
+                        <!-- Folder -->
+                        <td data-sort="<?= e($installation_folder) ?>">
+                            <?= e($installation_folder) ?>
+                        </td>
+
+                        <!--Category -->
+                        <?php if ($show_column_category) : ?>
+                            <td data-sort="<?= e($category) ?>">
+                                <?= e($category) ?>
+                            </td>
+                        <?php endif ?>
+
+                        <!--Date Added -->
+                        <?php if ($show_column_date_added) : ?>
+                            <td data-sort="<?= $date_added ?>">
+                                <?php if ($date_added === '') : ?>
+                                    <?= I18N::translate('N/A') ?>
+                                <?php else : ?>
+                                    <?= Registry::timestampFactory()->fromString($date_added, 'Y-m-d')->isoFormat('LL') ?>
+                                <?php endif ?>
+                            </td>
+                        <?php endif ?>
+
+                        <!-- Current version -->
+                        <td>
+                            <?php if ($module !== null): ?>
+                                <?= e(CustomModuleManager::normalizeVersion($module_name,
+                                    $current_version !== '' ? $current_version : I18N::translate('Not available')
+                                )) ?>
+                            <?php endif ?>
+                        </td>
+
+                        <!-- Latest version -->
+                        <td>
+                            <?php if (      !in_array($latest_compatible_version, [CustomModuleManager::VERSION_NOT_AVAILABLE, CustomModuleManager::VERSION_LATEST, ''])
+                                        &&  $module !== null
+                                        &&  CustomModuleManager::versionCompare($module_name, $latest_compatible_version, $current_version) > 0
+                                        &&  (       (in_array($module_update_service_name, [GithubModuleUpdate::NAME, CodebergModuleUpdate::NAME]) && $module_update_service->providesReleasesInRepository())
+                                                OR  ($module_update_service_name === VestaModuleUpdate::NAME))
+                                    ) : ?>
+                                <?php $latest_compatible_version_label = e(CustomModuleManager::normalizeVersion($module_name, $latest_compatible_version)) ?>
+                                <?php if ($compatiblilty === CustomModuleCompatibility::POSSIBLY_COMPATIBLE) : ?>
+                                    <?php $latest_compatible_version_label .= '<br>(' . CustomModuleCompatibility::POSSIBLY_COMPATIBLE->label() . ')' ?>
+                                <?php elseif ($compatiblilty === CustomModuleCompatibility::PRESUMABLY_COMPATIBLE) : ?>
+                                    <?php $latest_compatible_version_label .= '<br>(' . CustomModuleCompatibility::PRESUMABLY_COMPATIBLE->label() . ')' ?>
+                                <?php endif ?>
+                                <a href="#" data-bs-toggle="modal" data-bs-backdrop="static" data-bs-target="#wt-ajax-modal" data-wt-href="<?= e(route(ReleaseNotesModal::class, [
+                                        'module_name'    => $module_name,
+                                        'module_title'   => $module_title,
+                                        'version'        => $latest_compatible_version,
+                                        'ignore_version' => $ignore_version,
+                                    ])) ?>" type="submit" class="btn btn-<?= $latest_compatible_version === $ignore_version ? 'secondary' : 'primary' ?>">
+                                    <?= $latest_compatible_version_label ?>
+                                </a>
+                            <?php elseif ($module !== null): ?>
+                                <?= e(CustomModuleManager::normalizeVersion($module_name,
+                                    !in_array($latest_compatible_version, [CustomModuleManager::VERSION_NOT_AVAILABLE, CustomModuleManager::VERSION_LATEST, '']) ? $latest_compatible_version : I18N::translate('Not available')
+                                )) ?>
+                            <?php endif ?>
+                        </td>
+
+                        <!-- Compatibility -->
+                        <?php if ($show_column_compatibility) : ?>
+                            <!-- If the webtrees version to check is below a minimum version, we cannot provide any information -->
+                            <?php if (  !$update_service_available
+                                    OR  version_compare($custom_module_manager->getPreference(CustomModuleManager::PREF_COMP_WEBTREES_VERSION, ''),CustomModuleManager::VERSION_WEBTREES_MINIMUM) < 0
+                                    OR  $module === null && $latest_compatible_version === ''
+                            ) : ?>
+                                <?php $current_compatibility = CustomModuleCompatibility::NOT_AVAILABLE ?>
+                                <?php $general_compatibility = CustomModuleCompatibility::NOT_AVAILABLE ?>
+                            <?php else : ?>
+                                <?php if ($module !== null) : ?>
+                                    <?php $current_compatibility = $module_update_service->getCompatibility(
+                                        $current_version,
+                                        $custom_module_manager->getPreference(CustomModuleManager::PREF_COMP_WEBTREES_VERSION, '')
+                                    ) ?>
+                                <?php else : ?>
+                                    <?php $current_compatibility = CustomModuleCompatibility::NOT_AVAILABLE ?>
+                                <?php endif ?>
+                                <?php $general_compatibility_info = $module_update_service->getCompatibleVersionInfo(
+                                    $fetch_latest,
+                                    $custom_module_manager->getPreference(CustomModuleManager::PREF_COMP_WEBTREES_VERSION, '')
+                                ) ?>
+                                <?php $general_compatibility = $general_compatibility_info['compatiblilty'] ?>
+                                <?php $general_compatible_version = $general_compatibility_info['version'] ?>
+                            <?php endif ?>
+                            <td data-sort="<?= $current_compatibility->value >= $general_compatibility->value ? $current_compatibility->value : $general_compatibility->value ?>">
+                                <?php if (!$update_service_available) : ?>
+                                    <?= CustomModuleCompatibility::NOT_AVAILABLE->label() ?>
+                                <?php elseif ($latest_compatible_version === CustomModuleManager::VERSION_LATEST) : ?>
+                                    <?= CustomModuleCompatibility::NOT_AVAILABLE->label() ?>
+                                <?php elseif ($general_compatibility->value < CustomModuleCompatibility::POSSIBLY_COMPATIBLE->value) : ?>
+                                    <?= I18N::translate('No compatible version available') ?>
+                                <?php else : ?>
+                                    <?php if ($module !== null) : ?>
+                                        <?= I18N::translate('Current version') . ': ' . $current_compatibility->label() ?>
+                                    <?php endif ?>
+                                    <?php if (  $general_compatibility->value > $current_compatibility->value
+                                            &&  $general_compatibility->value >= CustomModuleCompatibility::POSSIBLY_COMPATIBLE->value) : ?>
+                                        <?php if ($module !== null) : ?>
+                                            <br><br>
+                                        <?php endif ?>
+                                        <?php if ($general_compatible_version === CustomModuleManager::VERSION_LATEST) : ?>
+                                            <?= I18N::translate('Latest version') . ': '?>
+                                        <?php else : ?>
+                                            <?= I18N::translate('Version %s', e(CustomModuleManager::normalizeVersion($module_name, $general_compatible_version))) . ': ' ?>
+                                        <?php endif ?>
+                                        <?= $general_compatibility->label() ?>
+                                    <?php endif ?>
+                                <?php endif ?>
+                            </td>
+                        <?php endif ?>
+
+                        <!--Update Service -->
+                        <?php if ($show_column_update_service) : ?>
+                            <td data-sort="<?= $module_update_service_name ?>">
+                                <?= $module_update_service_name ?>
+                            </td>
+                        <?php endif ?>
+
+                        <!--Downloads -->
+                        <?php if ($show_column_downloads) : ?>
+                            <?php $download_count = ($module_update_service instanceof GithubModuleUpdate) ? $module_update_service->getDownloadCount() : -1 ?>
+                            <td data-sort="<?= $download_count ?>">
+                                <?= $download_count > 0 ? number_format($download_count) : I18N::translate('N/A') ?>
+                            </td>
+                        <?php endif ?>
+
+                        <!-- Enabled -->
+					   <?php if ($module_status === CustomModuleStatus::ENABLED) : ?>
+							<?php $enabled_sort = '0' ?>
+						<?php elseif ($module_status === CustomModuleStatus::DISABLED) : ?>
+							<?php $enabled_sort = '2' ?>
+						<?php else : ?>
+							<?php $enabled_sort = '1' ?>
+						<?php endif ?>
+						<td data-sort="<?= $enabled_sort ?>">
+							<?php if ($module !== null) : ?>
+								<input  type="hidden"
+										name="<?= CustomModuleManager::ENABLED_STATUS_INCLUDED . $module->name() ?>"
+										id="<?= CustomModuleManager::ENABLED_STATUS_INCLUDED . $module->name() ?>"
+										value="1"
+								>
+								<?= view('components/checkbox', ['label' => '', 'name' => 'status-' . $module->name(), 'checked' => $module->isEnabled()]) ?>
+							<?php else : ?>
+								<?= $module_status->label() ?>
+							<?php endif ?>
+						</td>
+
+                        <!--Install -->
+                        <?php $action = '' ?>
+                        <?php $action_sort = '7' ?>
+                        <?php $action_label = '' ?>
+                        <?php if (!$update_service_available) : ?>
+                            <?php $action_sort = '6' ?>
+                        <?php elseif ($module === null && $latest_compatible_version === CustomModuleManager::VERSION_NOT_AVAILABLE) : ?>
+                            <?php $action_sort = '5' ?>
+                        <?php elseif ($module === null && $latest_compatible_version === '') : ?>
+                            <?php $action_sort = '4' ?>
+                        <?php elseif (  $module !== null
+                                    &&  !in_array($latest_compatible_version, [CustomModuleManager::VERSION_NOT_AVAILABLE, ''])
+                                    &&  $latest_compatible_version !== $ignore_version
+                                    &&  CustomModuleManager::versionCompare($module_name, $latest_compatible_version, $current_version) > 0
+                        ) : ?>
+                            <?php if ($module_update_service->updateManually()) : ?>
+                                <?php $action_sort = '2' ?>
+                            <?php else : ?>
+                                <?php $action_sort = '1' ?>
+                            <?php endif ?>
+                            <?php $action = CustomModuleManager::ACTION_UPDATE ?>
+                            <?php if ($module_update_service_name === VestaModuleUpdate::NAME && $vesta_confirmed) : ?>
+                                <?php $action_label = I18N::translate('Update all Vesta modules') ?>
+                            <?php elseif ($latest_compatible_version === CustomModuleManager::VERSION_LATEST) : ?>
+                                <?php $action_label = I18N::translate('Update to latest version') ?>
+                            <?php else : ?>
+                                <?php $action_label = I18N::translate('Update to version %s', CustomModuleManager::normalizeVersion($module_name, $latest_compatible_version)) ?>
+                                <?php if ($compatiblilty === CustomModuleCompatibility::POSSIBLY_COMPATIBLE) : ?>
+                                    <?php $action_label .= '<br>(' . I18N::translate('might be incompatible') . ')' ?>
+                                <?php endif ?>
+                            <?php endif ?>
+                        <?php elseif ($module === null) : ?>
+                            <?php $action_sort = '3' ?>
+                            <?php $action = CustomModuleManager::ACTION_INSTALL ?>
+                                <?php if ($module_update_service_name === VestaModuleUpdate::NAME && $vesta_confirmed) : ?>
+                                    <?php $action_label = I18N::translate('Install all Vesta modules') ?>
+                                <?php elseif (  $latest_compatible_version === CustomModuleManager::VERSION_LATEST
+                                            OR  (   in_array($module_update_service_name, [GithubModuleUpdate::NAME, CodebergModuleUpdate::NAME])
+                                                 && $module_update_service->noRelease())
+                                ) : ?>
+                                    <?php $action_label = I18N::translate('Install latest version') ?>
+                                <?php else : ?>
+                                    <?php $action_label = I18N::translate('Install version %s', CustomModuleManager::normalizeVersion($module_name, $latest_compatible_version)) ?>
+                                    <?php if ($compatiblilty ===  CustomModuleCompatibility::POSSIBLY_COMPATIBLE) : ?>
+                                        <?php $action_label .= '<br>(' . I18N::translate('might be incompatible') . ')' ?>
+                                    <?php endif ?>
+                                <?php endif ?>
+                        <?php endif ?>
+
+                        <td data-sort="<?= $action_sort ?>">
+                            <?php if (!$update_service_available) : ?>
+                                <?= I18N::translate('No update service available') ?>
+                            <?php elseif ($module === null && $latest_compatible_version === '') : ?>
+                                <?= I18N::translate('No compatible version available') ?>
+                            <?php elseif (  $update_service_available
+                                        && $action === CustomModuleManager::ACTION_UPDATE
+                                        && $module_update_service->updateManually()
+                            ) : ?>
+                                <?= I18N::translate('Manual updating/merging required') ?>
+                            <?php elseif ($action_label !== '' && $update_service_available) : ?>
+                                <?php if ($module_update_service_name === VestaModuleUpdate::NAME && !$vesta_confirmed) : ?>
+                                    <a href="#" data-bs-toggle="modal" data-bs-backdrop="static" data-bs-target="#wt-ajax-modal" data-wt-href="<?= e(route(VestaInformationModal::class)) ?>" type="submit" class="btn btn-<?= $action === CustomModuleManager::ACTION_UPDATE ? 'primary' : 'secondary' ?>">
+                                        <?= $action_label ?>
+                                    </a>
+                                <?php else : ?>
+                                    <?php $primary_button = $action ===     CustomModuleManager::ACTION_UPDATE
+                                                                        &&  $module !== null
+                                                                        &&  $latest_compatible_version !== CustomModuleManager::VERSION_LATEST
+                                    ?>
+                                    <a href="#" data-bs-toggle="modal" data-bs-backdrop="static" data-bs-target="#wt-ajax-modal" data-wt-href="<?= e(route(ModuleUpgradeWizardPage::class, [
+                                            'module_name'     => $module_name,
+                                            'current_version' => $current_version,
+                                            'version'         => $latest_compatible_version !== CustomModuleManager::VERSION_LATEST ? $latest_compatible_version : '',
+                                            'action'          => $action,
+                                        ])) ?>" type="submit" class="btn btn-<?= $primary_button ? 'primary' : 'secondary' ?>">
+                                        <?= $action_label ?>
+                                    </a>
+                                <?php endif ?>
+                            <?php endif ?>
+                        </td>
+
+                        <!--Delete -->
+                        <?php $action_label = '' ?>
+                        <?php $action_sort = '0' ?>
+                        <?php if ($module !== null) : ?>
+                            <?php if ($module_update_service_name === VestaModuleUpdate::NAME && $vesta_confirmed) : ?>
+                                <?php $action_label = I18N::translate('Delete all Vesta modules') ?>
+                                <?php $action_sort = '2' ?>
+                            <?php else : ?>
+                                <?php $action_label = I18N::translate('Delete module') ?>
+                                <?php $action_sort = '1' ?>
+                            <?php endif ?>
+                        <?php endif ?>
+                        <td data-sort="<?= $action_sort ?>">
+                            <?php if ($module !== null) : ?>
+                                <?php if ($module_update_service_name === VestaModuleUpdate::NAME && !$vesta_confirmed) : ?>
+                                    <a href="#" data-bs-toggle="modal" data-bs-backdrop="static" data-bs-target="#wt-ajax-modal" data-wt-href="<?= e(route(VestaInformationModal::class)) ?>" type="submit" class="btn btn-secondary">
+                                        <?= $action_label ?>
+                                    </a>
+                                <?php else : ?>
+                                    <a href="#" data-bs-toggle="modal" data-bs-backdrop="static" data-bs-target="#wt-ajax-modal" data-wt-href="<?= e(route(ModuleUpgradeWizardPage::class, [
+                                            'module_name'     => $module_name,
+                                            'action'          => CustomModuleManager::ACTION_DELETE,
+                                        ])) ?>" type="submit" class="btn btn-secondary">
+                                        <?= $action_label ?>
+                                    </a>
+                                <?php endif ?>
+                            <?php endif ?>
+                        </td>
+                    </tr>
+                <?php endforeach ?>
+            </tbody>
+        </table>
+        </div>
     <?= csrf_field() ?>
 </form>
+
+<?php View::push('javascript') ?>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const dt = new DataTable('#wt-datatables-custom-module-manager-updates');
+
+        const searchBox = document.querySelector('#wt-datatables-custom-module-manager-updates_wrapper .dt-search');
+        const stickyBar = document.getElementById('module-filter-bar');
+
+        if (searchBox && stickyBar) {
+            stickyBar.appendChild(searchBox);
+
+            searchBox.classList.add('d-flex', 'align-items-center', 'gap-2');
+            label.classList.add('mb-0');
+        }
+    });
+</script>
+<?php View::endpush() ?>
 
 <?= view('modals/ajax') ?>
